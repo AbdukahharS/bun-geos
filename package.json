@@ -5,9 +5,13 @@
   "private": true,
   "scripts": {
     "typecheck": "bun check",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
     "test:spike": "bun test spike/"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
     "@types/bun": "latest"
   },
   "peerDependencies": {
