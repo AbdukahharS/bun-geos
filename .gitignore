@@ -1,6 +1,10 @@
 # dependencies (bun install)
 node_modules
 
+# phase 0 spike: geos checkout + native build artifacts
+/vendor
+/spike/build
+
 # output
 out
 dist
