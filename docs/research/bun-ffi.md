@@ -13,6 +13,10 @@ and result boxing happen inside the engine, and hot call sites compile through t
 JIT tiers into **direct native calls with no per-argument JS shim**.
 
 Bun's published benchmark: **roughly 2–6× faster than Node.js FFI through Node-API.**
+Since 1.4.0 the FFI is engine-native end to end (the embedded TinyCC's role is reduced
+to `cc()` runtime compilation — the FFI call path no longer touches it), with its own
+published numbers: no-op call 2.13 → **0.70 ns** (3×), `new CString(ptr)` 92.5 →
+**24.1 ns** (3.8×).
 
 Why this matters less than it seems for GEOS: GEOS operations are coarse-grained (µs to ms
 each). The FFI tax only matters *per-coordinate* and *per-item* — which is exactly what the
@@ -61,9 +65,16 @@ the documented exception (use `u64`) — not applicable to GEOS.
 
 - `cstring` **args** accept JS strings directly; the engine transcodes to null-terminated
   UTF-8 for the duration of the call (WKT input in one line, no manual encode).
-- `cstring` **returns** clone the C string into a JS string; the pointer stays
-  GEOS-owned → free it with `GEOSFree` right after.
-- `new CString(ptr, 0, len)` for known-length buffers.
+- `cstring` **returns** give a plain JS string; a NULL pointer arrives as `null`.
+  **Owned-buffer trap (F10, verified):** the engine clones the text and has no way to
+  call `GEOSFree`, so a cstring return on a GEOS-owned buffer **leaks** it — and the
+  pre-1.4 `.ptr` escape hatch is gone. Every writer return must be bound
+  `returns: "ptr"`, viewed with `new CString(ptr)`, and freed with `GEOSFree_r`
+  (modeled by `toWKT()` in `spike/lib.ts`; guarded by
+  `spike/cstring-semantics.test.ts`). `cstring` returns are only for strings that need
+  no free at all: `GEOSversion`'s static, the shim's thread-local buffers.
+- `new CString(ptr)` is the ptr→string view; on 1.4 it returns a plain string (no
+  `.ptr`/`.byteLength`/`.arrayBuffer`) — keep the original pointer to free it.
 
 ### Callbacks — `JSCallback`
 
@@ -112,6 +123,8 @@ issues; the relevant clusters:
 | Fresh JSCallback sharp edges (must `.close()`, re-entrancy) | Tracker cluster | No callbacks on hot paths; shim result buffers |
 | **Concurrent `dlopen()` from freshly-spawned Workers → intermittent SIGSEGV** | [#40972](https://github.com/oven-sh/bun/issues/40972) (closed 2026-08) | Preload on the main thread before spawning workers (D11) |
 | Type coercion bugs still being filed | [#44906](https://github.com/oven-sh/bun/issues/44906) (2026-10: a double passed to an i32/u32/i16 arg arrives as 0) | FFI value-roundtrip smoke tests per Bun release in CI. **Phase 0:** bug does not reproduce on 1.4.3 — fractional values truncate C-style, boundaries exact (`spike/ffi-values.test.ts` is the CI seed) |
+| `cstring` return on an owned buffer leaks (1.4 engine FFI — the engine cannot call `GEOSFree`) | Verified: ~85 MB/epoch RSS growth over WKT writes ([spike results F10](spike-results.md)) | Owned returns bound `ptr` + `CString` + `GEOSFree_r`; verdict test in CI |
+| `dlopen()` throws `TypeError` when the JIT is disabled (1.4+) | Docs | Loader surfaces a remediation message ([architecture §loader](../design/architecture.md)) |
 | `bun build --compile` + embedded native libs: re-extraction every run / TMPDIR leaks | [#44238](https://github.com/oven-sh/bun/issues/44238), [#40076](https://github.com/oven-sh/bun/issues/40076) | **Phase 0 tested on 1.4.3:** works — dlopens via `$bunfs`, ~0.1 ms load; but leaks one `.bun-*.so` in `$TMPDIR` per run (#40076 live). Only affects user-compiled apps; re-verify per Bun release |
 | ~~`cc()` can be disabled (`--no-ffi-cc`, `--no-addons`)~~ | Docs | Moot — the cc() fallback is dropped entirely (TCC cannot compile the shim's `__thread` usage) |
 | `AsyncFunction` (threadpool FFI calls) absent from current docs | Docs | Don't build on it — concurrency comes from Workers (D11) |

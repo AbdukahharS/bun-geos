@@ -15,8 +15,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* Minimal inline prototypes so this file can also be compiled by cc()/TinyCC
- * without GEOS headers present (docs/design/shim.md §4). Matches geos_c.h. */
+/* Minimal inline prototypes so this file compiles without GEOS headers
+ * present (docs/design/shim.md §4). Matches geos_c.h.
+ *
+ * (cc()/TinyCC was once considered as the dev fallback for this file; it is
+ * dropped — Bun's embedded TCC rejects the __thread state below, and
+ * thread-local capture is load-bearing. See shim.md §4 and spike-results F7.) */
 typedef void *GEOSContextHandle_t;
 typedef void (*GEOSMessageHandler_r)(const char *fmt, ...);
 

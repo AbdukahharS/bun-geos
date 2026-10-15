@@ -3,7 +3,7 @@
 > Status: **complete, GO** — October 2026. Machine: Arch Linux, x86_64, glibc 2.44,
 > Bun 1.4.3, gcc 16.2.1 (clang broken on this box: missing `libLLVM.so.23.1`), no system
 > GEOS. Every check below is reproducible via `spike/setup.sh` + `bun test spike/`
-> (18 tests, all green). Results doc by check:
+> (23 tests, all green). Results doc by check:
 
 ## Exit criteria
 
@@ -109,6 +109,36 @@ runs from any cwd, load+call ≈ 0.1 ms. But each run **leaves `.bun-<uid>-<hash
 Not load-bearing for our distribution model (users `bun add`; only user-compiled apps hit
 this). Document per Bun version; re-verify each release.
 
+## F10 — bun:ffi string-return semantics on engine-native Bun 1.4.x
+
+Bun 1.4.0 rebuilt `bun:ffi` inside JavaScriptCore (the TinyCC thunks are gone
+from the FFI call path; hot call sites JIT to direct native calls) and changed
+string returns. Verified in `spike/cstring-semantics.test.ts` on 1.4.3:
+
+- `returns: "cstring"` now yields a **plain string** — no `.ptr`,
+  `.byteLength`, or `.arrayBuffer` — and a NULL return arrives as JS `null`
+  (asserted via the shim's fresh-session `geos_shim_last_error`).
+- **`cstring` on a GEOS-OWNED buffer leaks.** 6,000 `GEOSGeomToWKT_r` writes
+  of a ~36 KB WKT grew RSS linearly at ~85 MB/epoch (257 MB total): the
+  engine clones the text and can never call `GEOSFree`. The pre-1.4 escape
+  hatch (reading `.ptr` off the returned `CString`) no longer exists.
+- **The rule that does not leak:** bind the return `"ptr"`, view with
+  `new CString(ptr)` (plain string; the C buffer is untouched), then
+  `GEOSFree_r(ctx, ptr)` — RSS flatlined (0.3 MB/epoch after warmup).
+
+**Binding rules for `src/symbols.ts`** (supersede the F6-era cstring-return
+note):
+
+1. `const char*` **args** → `cstring` (unchanged; auto UTF-8 encode).
+2. Returns that need **no free** → `returns: "cstring"` (`GEOSversion`'s
+   static string; the shim's thread-local `last_error`/`last_notice` buffers).
+3. Returns **GEOS owns** (every writer: WKT/GeoJSON outputs) →
+   `returns: "ptr"` + `CString` view + `GEOSFree_r` (modeled by `toWKT()`
+   in `spike/lib.ts`).
+
+The leak test is a guarded verdict: if a future Bun frees the buffer, the
+test trips and rule 3 can be relaxed.
+
 ## Soak numbers
 
 - 100,000 × (2 polygons built from flat buffers + intersection + ring copy-back + 3 destroys) in **0.66 s**.
@@ -118,13 +148,15 @@ this). Document per Bun version; re-verify each release.
 ## Environment pin for reproducibility
 
 - GEOS **3.14.1** (tag), built Release, shared, `-DCMAKE_INSTALL_RPATH='$ORIGIN'`, gcc 16.2.1 / CMake 4.4.4 / ninja 1.13.2.
-- Bun **1.4.3** (`bun test spike/` — 18 tests).
+- Bun **1.4.3** (`bun test spike/` — 23 tests).
 - Shim compile: `gcc -O2 -fPIC -shared -Wall -Wextra native/shim.c -o spike/build/shim.so -Lspike/build/geos-install/lib -lgeos_c -Wl,--disable-new-dtags -Wl,-rpath,'$ORIGIN/geos-install/lib'`.
 
 ## Carry-forwards into Phase 1
 
 1. `native/shim.c` graduates as-is (66 lines: init/finish/context/last_error/last_notice, thread-local capture).
-2. `src/symbols.ts`: cstring-decl rule for every `const char*`; `GEOSversion` bound without `_r`; null-not-zero pointer checks.
+2. `src/symbols.ts`: cstring-decl rule for every `const char*` **arg**; owned-buffer
+   returns bound `ptr` + `CString` view + `GEOSFree_r` (F10 — a cstring return leaks
+   them); `GEOSversion` bound without `_r`; null-not-zero pointer checks.
 3. Loader: prefer shim DT_RPATH; keep `BUN_GEOS_LIBRARY` escape hatch with the 3.14 assert; libc self-selection via `glibcVersionRuntime` (F2).
 4. Packaging (Phase 4): keep `libc` fields (npm benefit), accept Bun's double download, CI bakes `$ORIGIN` RPATH into all three artifacts, link shim with `--disable-new-dtags`.
 5. Drop cc() from the plan-of-record (F7); dev/native build script instead.

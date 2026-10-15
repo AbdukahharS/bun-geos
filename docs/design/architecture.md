@@ -48,6 +48,9 @@ platform package — see [packaging](../operations/packaging.md).
    (Spike note: `GEOSversion` is the one C API function with no `_r` variant.)
 5. Install handlers *through the shim* (never via JSCallback — D4; empirically confirmed:
    a JSCallback handler receives only the `"%s"` format string, never the message).
+6. If `dlopen` throws because the JIT is disabled (Bun 1.4+ makes every `bun:ffi` entry
+   point throw `TypeError` in that mode), fail with a message stating bun-geos requires
+   the JIT — there is no JIT-less fallback (pure-WASM is permanently out of scope, D1).
 
 ### Symbol table (`symbols.ts`)
 One declarative map of every `geos_c` `_r` function we use, plus the shim exports.
