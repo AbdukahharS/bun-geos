@@ -27,6 +27,9 @@ export const shim = dlopen(join(import.meta.dir, "build", "shim.so"), {
   geos_shim_init: { args: [], returns: "ptr" },
   geos_shim_context: { args: ["ptr"], returns: "ptr" },
   geos_shim_finish: { args: ["ptr"], returns: "void" },
+  // cstring returns are CORRECT here: the shim hands back pointers into its
+  // thread-local buffers (nothing to free). cstring is only wrong for
+  // GEOS-OWNED heap returns — those leak (F10).
   geos_shim_last_error: { args: ["ptr"], returns: "cstring" },
   geos_shim_last_notice: { args: ["ptr"], returns: "cstring" },
 });

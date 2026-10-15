@@ -2,7 +2,7 @@
  * Phase 0 spike: minimal `_r`-only binding to the locally built GEOS 3.14.1.
  * Throwaway — the real symbol table (`src/symbols.ts`) graduates from this.
  */
-import { dlopen, type Pointer } from "bun:ffi";
+import { CString, dlopen, type Pointer } from "bun:ffi";
 import { join } from "node:path";
 
 const LIB_DIR = join(import.meta.dir, "build", "geos-install", "lib");
@@ -18,7 +18,9 @@ export const lib = dlopen(join(LIB_DIR, "libgeos_c.so.1.20.5"), {
   GEOS_init_r: { args: [], returns: "ptr" },
   GEOS_finish_r: { args: ["ptr"], returns: "void" },
   // NOTE: GEOSversion is the one function with no _r variant (process-global,
-  // returns a static string — nothing to free).
+  // returns a static string — nothing to free). That is exactly why the
+  // `cstring` return is safe here; GEOS-OWNED buffers must NOT use cstring
+  // (the engine cannot GEOSFree them — leak; see F10 / cstring-semantics.test).
   GEOSversion: { args: [], returns: "cstring" },
 
   // flat-buffer coordinate sequences (the D9 canonical currency)
@@ -44,8 +46,10 @@ export const lib = dlopen(join(LIB_DIR, "libgeos_c.so.1.20.5"), {
   GEOSIntersection_r: { args: ["ptr", "ptr", "ptr"], returns: "ptr" },
   GEOSArea_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
 
-  // debug I/O
-  GEOSGeomToWKT_r: { args: ["ptr", "ptr"], returns: "cstring" },
+  // GEOS-OWNED return (caller must GEOSFree): bind returns:"ptr" — under the
+  // 1.4 engine-native FFI, a cstring return clones to a JS string and the
+  // buffer leaks (F10). Read via new CString(ptr), then GEOSFree_r the ptr.
+  GEOSGeomToWKT_r: { args: ["ptr", "ptr"], returns: "ptr" },
 
   // teardown (owned objects only)
   GEOSGeom_destroy_r: { args: ["ptr", "ptr"], returns: "void" },
@@ -102,6 +106,19 @@ export function area(ctx: Ctx, g: Pointer): number {
   const out = new Float64Array(1);
   const ok = lib.symbols.GEOSArea_r(ctx, g, out);
   return ok ? out[0]! : NaN;
+}
+
+/**
+ * WKT of a geometry. GEOS owns the returned buffer, so the binding is
+ * returns:"ptr" and this helper views it with CString and frees it with
+ * GEOSFree_r (the F10 rule that src/symbols.ts graduates).
+ */
+export function toWKT(ctx: Ctx, g: Pointer): string {
+  const ptr = lib.symbols.GEOSGeomToWKT_r(ctx, g) as Pointer;
+  if (!ptr) throw new Error("GEOSGeomToWKT_r returned NULL");
+  const s = new CString(ptr);
+  lib.symbols.GEOSFree_r(ctx, ptr);
+  return s;
 }
 
 /** Deterministic PRNG so property tests are reproducible across runs. */
