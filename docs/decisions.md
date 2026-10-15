@@ -196,6 +196,35 @@ happens in JS (D9).
 
 Confirmed by the maintainer. Platform packages per D7.
 
+## D15 — Toolchain: Biome lint/format; tsc as the type gate; branded pointer handles
+
+**Context.** Phase 0 proved the FFI + shim model ([spike results](research/spike-results.md)).
+The observed failure modes are runtime-level — pointer misuse (the `GeosShim*`-as-context
+segfault, F8), silent coercions, leaked temporaries — and are invisible to syntactic
+linters. The repo needs enforcement that scales from one file to the Phase 1 layout
+without a heavy toolchain.
+
+**Decision.**
+1. **Biome** (single Rust binary) is the linter, formatter, and import organizer
+   (`biome.jsonc`). No ESLint, no Prettier. `noExplicitAny: error`; type-aware rules
+   (`noFloatingPromises` et al.) enabled; `noNonNullAssertion: warn` — FFI out-params
+   legitimately use `!` under `noUncheckedIndexedAccess`, so it stays visible-but-passing.
+2. **tsc (`bun check`) remains the type gate.** Beyond `strict` +
+   `noUncheckedIndexedAccess` + `verbatimModuleSyntax`: `exactOptionalPropertyTypes`,
+   `noUncheckedSideEffectImports`, `noImplicitOverride`, `noFallthroughCasesInSwitch`,
+   `forceConsistentCasingInFileNames`.
+3. **Branded pointer handles (Phase 1 code, codifying F8):** `GEOSContextHandle_t`,
+   `GeosShim*`, and `GEOSGeometry*` are distinct branded `number` types in TS
+   (`type GeosCtx = number & { readonly __brand: "ctx" }` …), so passing one where another
+   belongs is a **compile error**, and the FFI symbol table is `satisfies`-checked against
+   the geos_c signature map.
+
+**Consequences.** Zero `any` in the codebase; formatting is mechanical; CI gates lint +
+types + native spike tests on every push (single ubuntu job — the 7-platform matrix stays
+Phase 4). If a floating-promise class of bug ever escapes Biome's type-aware rules,
+typescript-eslint is added for that rule only — not as a second formatter or default
+linter.
+
 ---
 
 ## Open design work (tracked, not yet decided in detail)

@@ -1,6 +1,7 @@
 # bun-geos
 
-Small single-package Bun project. Entrypoint is `index.ts`; no src/, no tests, no CI yet.
+Small single-package Bun project. Entrypoint is `index.ts` (placeholder until Phase 1 creates
+`src/`); tests live in `spike/` for now; CI is a single ubuntu job (`.github/workflows/ci.yml`).
 
 ## Toolchain: Bun, not Node
 
@@ -9,7 +10,8 @@ Default to Bun for everything (Bun 1.4.x, TypeScript ^7 native as peerDependency
 - Run a file: `bun <file>` — never `node` / `ts-node`
 - Install: `bun install` — never npm/yarn/pnpm
 - Typecheck: `bun check` (alias `bun run typecheck`); one file: `bun check src/index.ts`
-- Test: `bun test`; single file/filter: `bun test <file>` or `bun test -t <name>`
+- Test: `bun test`; spike suite: `bun test spike/` (needs native libs: `./spike/setup.sh`)
+- Lint + format: Biome — `bun run lint` / `bun run lint:fix` / `bun run format`
 - Scripts: `bun run <script>`; one-off binaries: `bunx <pkg> <cmd>`
 - Shell out from code with `Bun.$` instead of execa
 
@@ -18,7 +20,15 @@ Default to Bun for everything (Bun 1.4.x, TypeScript ^7 native as peerDependency
 - `verbatimModuleSyntax` is on: type-only imports must use `import type`.
 - `allowImportingTsExtensions` + bundler resolution: relative imports use `.ts` extensions; there is no build step (`noEmit`) — Bun runs TS directly.
 - `noUncheckedIndexedAccess` is on: `arr[i]` and `obj[key]` are `T | undefined`.
-- `strict` is on.
+- Also on: `exactOptionalPropertyTypes`, `noUncheckedSideEffectImports`, `noImplicitOverride`, `noFallthroughCasesInSwitch`, `forceConsistentCasingInFileNames`.
+- `strict` is on. `noExplicitAny` is a lint error (biome) — an FFI library carries zero `any`.
+
+## Lint & format (Biome)
+
+- Config: `biome.jsonc` (strict JSON would reject comments; `biome.jsonc` allows them).
+- `bun run lint` must stay at 0 errors; the only tolerated warnings are
+  `noNonNullAssertion` on FFI out-params (visible, not blocking — D15).
+- `spike/` may use `console.log` (tests print verdicts); `src/` may not.
 
 ## Bun runtime conventions
 
