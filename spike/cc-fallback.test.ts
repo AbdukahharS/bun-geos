@@ -4,8 +4,9 @@
  * kill switch. Result: TCC rejects __thread (the shim's per-thread error
  * capture), so the fallback is dead as designed on this platform.
  */
-import { expect, test } from "bun:test";
+
 import { cc, dlopen, type Pointer } from "bun:ffi";
+import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { LIB_DIR } from "./shim.ts";
 
@@ -47,7 +48,7 @@ function tryCc(label: string, library: string[]): boolean {
     if (g !== null) throw new Error("expected parse failure");
     const err = lib.symbols.geos_shim_last_error(s);
     lib.symbols.geos_shim_finish(s);
-    if (!err || !err.includes("ParseException")) {
+    if (!err?.includes("ParseException")) {
       throw new Error(`message not captured: ${JSON.stringify(err)}`);
     }
     console.log(`cc() variant OK [${label}]: ${JSON.stringify(err)}`);

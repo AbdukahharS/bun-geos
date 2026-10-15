@@ -2,8 +2,9 @@
  * Phase 0 spike, check #3: the error path (kill-switch #2).
  * A real GEOS failure must surface its message through a thrown GeosError.
  */
-import { expect, test } from "bun:test";
+
 import { CString, dlopen, JSCallback, type Pointer } from "bun:ffi";
+import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { GeosError, LIB_DIR, readWKT, shim, withShim } from "./shim.ts";
 
@@ -66,35 +67,32 @@ test("baseline without shim: message is lost (only NULL return reaches JS)", () 
   }
 });
 
-test(
-  "INFORMATIONAL: JSCallback as variadic handler — works in practice? (D4 decision input)",
-  () => {
-    // The C standard says a non-variadic function invoked through a variadic
-    // call site is UB (SysV: caller must set %al). bun:ffi cannot even
-    // *declare* the variadic signature. This documents what actually happens
-    // on this machine — it does not change the D4 decision (shim stands).
-    const plain = dlopen(GEOS_C, {
-      GEOS_init_r: { args: [], returns: "ptr" },
-      GEOS_finish_r: { args: ["ptr"], returns: "void" },
-      GEOSContext_setErrorHandler_r: { args: ["ptr", "ptr"], returns: "void" },
-      GEOSGeomFromWKT_r: { args: ["ptr", "cstring"], returns: "ptr" },
-    });
-    const c = plain.symbols.GEOS_init_r();
-    let captured: string | null = null;
-    const cb = new JSCallback(
-      (fmt: Pointer) => {
-        captured = new CString(fmt);
-      },
-      { args: ["ptr"], returns: "void" },
-    );
-    try {
-      plain.symbols.GEOSContext_setErrorHandler_r(c, cb.ptr);
-      const g = plain.symbols.GEOSGeomFromWKT_r(c, "POLYGON((");
-      expect(g).toBeNull();
-      console.log(`JSCallback experiment: captured=${JSON.stringify(captured)}`);
-    } finally {
-      cb.close();
-      plain.symbols.GEOS_finish_r(c);
-    }
-  },
-);
+test("INFORMATIONAL: JSCallback as variadic handler — works in practice? (D4 decision input)", () => {
+  // The C standard says a non-variadic function invoked through a variadic
+  // call site is UB (SysV: caller must set %al). bun:ffi cannot even
+  // *declare* the variadic signature. This documents what actually happens
+  // on this machine — it does not change the D4 decision (shim stands).
+  const plain = dlopen(GEOS_C, {
+    GEOS_init_r: { args: [], returns: "ptr" },
+    GEOS_finish_r: { args: ["ptr"], returns: "void" },
+    GEOSContext_setErrorHandler_r: { args: ["ptr", "ptr"], returns: "void" },
+    GEOSGeomFromWKT_r: { args: ["ptr", "cstring"], returns: "ptr" },
+  });
+  const c = plain.symbols.GEOS_init_r();
+  let captured: string | null = null;
+  const cb = new JSCallback(
+    (fmt: Pointer) => {
+      captured = new CString(fmt);
+    },
+    { args: ["ptr"], returns: "void" },
+  );
+  try {
+    plain.symbols.GEOSContext_setErrorHandler_r(c, cb.ptr);
+    const g = plain.symbols.GEOSGeomFromWKT_r(c, "POLYGON((");
+    expect(g).toBeNull();
+    console.log(`JSCallback experiment: captured=${JSON.stringify(captured)}`);
+  } finally {
+    cb.close();
+    plain.symbols.GEOS_finish_r(c);
+  }
+});

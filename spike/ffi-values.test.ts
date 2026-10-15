@@ -4,8 +4,9 @@
  * to an integer-typed arg arriving as 0). Every cell documents what Bun 1.4.3
  * actually does on linux-x64.
  */
-import { expect, test } from "bun:test";
+
 import { dlopen } from "bun:ffi";
+import { expect, test } from "bun:test";
 import { join } from "node:path";
 
 const values = dlopen(join(import.meta.dir, "build", "values.so"), {

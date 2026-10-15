@@ -5,16 +5,11 @@
  * no runaway growth. RSS deltas per epoch expose a leak signature (steady
  * linear growth) vs warmup (early growth that flattens).
  */
-import { expect, test } from "bun:test";
+
 import type { Pointer } from "bun:ffi";
-import {
-  area,
-  exteriorRingXY,
-  lib,
-  polygonFromXY,
-  withContext,
-} from "./lib.ts";
-import { GeosError, readWKT, destroy, withShim } from "./shim.ts";
+import { expect, test } from "bun:test";
+import { area, exteriorRingXY, lib, polygonFromXY, withContext } from "./lib.ts";
+import { destroy, GeosError, readWKT, withShim } from "./shim.ts";
 
 const N = 100_000;
 const EPOCH = 10_000;

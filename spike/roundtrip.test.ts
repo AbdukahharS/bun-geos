@@ -3,16 +3,17 @@
  * flat Float64Array → CoordSeq_copyFromBuffer → polygon → GEOSIntersection_r
  * → copyToBuffer → correct numbers, zero crashes.
  */
-import { expect, test } from "bun:test";
+
 import type { Pointer } from "bun:ffi";
+import { expect, test } from "bun:test";
 import {
   area,
+  type Ctx,
   exteriorRingXY,
   lib,
   mulberry32,
   polygonFromXY,
   withContext,
-  type Ctx,
 } from "./lib.ts";
 
 /** Destroy a list of owned geometry pointers. */
@@ -66,47 +67,44 @@ test("overlay known answer: A ∩ B = (1,1),(3,1),(1,3), area 2.0", () => {
   });
 });
 
-test(
-  "randomized triangles: intersection area ≤ min(inputs), no crashes (n=500)",
-  () => {
-    withContext((ctx) => {
-      const rand = mulberry32(0x5eed);
-      const tri = (): Float64Array => {
-        // random CCW triangle in [-10,10]², closed ring
-        const p = [0, 1, 2].map(() => [rand() * 20 - 10, rand() * 20 - 10]);
-        p.sort(([, ya], [, yb]) => ya! - yb!); // crude CCW-ish ordering
-        const flat = new Float64Array(8);
-        for (let i = 0; i < 3; i++) {
-          flat[i * 2] = p[i]![0]!;
-          flat[i * 2 + 1] = p[i]![1]!;
-        }
-        flat[6] = flat[0]!;
-        flat[7] = flat[1]!;
-        return flat;
-      };
+test("randomized triangles: intersection area ≤ min(inputs), no crashes (n=500)", () => {
+  withContext((ctx) => {
+    const rand = mulberry32(0x5eed);
+    const tri = (): Float64Array => {
+      // random CCW triangle in [-10,10]², closed ring
+      const p = [0, 1, 2].map(() => [rand() * 20 - 10, rand() * 20 - 10]);
+      p.sort(([, ya], [, yb]) => ya! - yb!); // crude CCW-ish ordering
+      const flat = new Float64Array(8);
+      for (let i = 0; i < 3; i++) {
+        flat[i * 2] = p[i]![0]!;
+        flat[i * 2 + 1] = p[i]![1]!;
+      }
+      flat[6] = flat[0]!;
+      flat[7] = flat[1]!;
+      return flat;
+    };
 
-      for (let i = 0; i < 500; i++) {
-        const bufA = tri();
-        const bufB = tri();
-        const a = polygonFromXY(ctx, bufA);
-        const b = polygonFromXY(ctx, bufB);
+    for (let i = 0; i < 500; i++) {
+      const bufA = tri();
+      const bufB = tri();
+      const a = polygonFromXY(ctx, bufA);
+      const b = polygonFromXY(ctx, bufB);
+      try {
+        const areaA = area(ctx, a);
+        const areaB = area(ctx, b);
+        const inter = lib.symbols.GEOSIntersection_r(ctx, a, b) as Pointer;
         try {
-          const areaA = area(ctx, a);
-          const areaB = area(ctx, b);
-          const inter = lib.symbols.GEOSIntersection_r(ctx, a, b) as Pointer;
-          try {
-            const areaI = area(ctx, inter);
-            if (!Number.isNaN(areaI)) {
-              // intersection ⊆ both inputs; empty results report area 0
-              expect(areaI).toBeLessThanOrEqual(Math.min(areaA, areaB) + 1e-9);
-            }
-          } finally {
-            destroyAll(ctx, [inter]);
+          const areaI = area(ctx, inter);
+          if (!Number.isNaN(areaI)) {
+            // intersection ⊆ both inputs; empty results report area 0
+            expect(areaI).toBeLessThanOrEqual(Math.min(areaA, areaB) + 1e-9);
           }
         } finally {
-          destroyAll(ctx, [a, b]);
+          destroyAll(ctx, [inter]);
         }
+      } finally {
+        destroyAll(ctx, [a, b]);
       }
-    });
-  },
-);
+    }
+  });
+});
