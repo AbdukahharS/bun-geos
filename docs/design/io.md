@@ -1,6 +1,6 @@
 # Design: I/O layer
 
-> Status: design target (pre-spike). Implements D9. Factual basis:
+> Status: design target (post-spike). Implements D9. Factual basis:
 > `GEOSCoordSeq_copyFromBuffer/copyToBuffer` take/produce interleaved `double` buffers
 > ([GEOS research §5](../research/geos.md)).
 
@@ -56,7 +56,7 @@ conversions, and (d) trivially structured-cloned to Workers.
 - Reader/writer options exposed: output dimension (2/3/4, incl. the 3.14
   `GeoJSONWriter_setOutputDimension` analog for GeoJSON), byte order (native default,
   big-endian for goldens), include-SRID.
-- **PostGIS/EWKB note (spike item):** PostGIS `bytea` is EWKB (SRID flag + optional
+- **PostGIS/EWKB note (Phase 1 I/O item, not Phase 0):** PostGIS `bytea` is EWKB (SRID flag + optional
   Z/M flags). GEOS reads it; SRIDs ride along as our side-channel property
   (`geometry.srid`), since the core C API has no SRID storage. Round-tripping a PostGIS
   bytea must preserve SRID — covered by a dedicated differential test against a live

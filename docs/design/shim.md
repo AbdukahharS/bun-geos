@@ -1,6 +1,8 @@
 # Design: the C shim
 
-> Status: design target (pre-spike). The shim is D4 in the
+> Status: **load-bearing slice proven in the Phase 0 spike** (init/finish/context/
+> last_error/last_notice — see [spike results](../research/spike-results.md)); the rest of
+> this surface remains a design target. The shim is D4 in the
 > [decision record](../decisions.md). It is the only C code in the repository and the
 > only place where `bun:ffi`'s limits are engineered around.
 
@@ -87,12 +89,14 @@ This keeps the audited surface ~300 lines and the JS layer the place where behav
 
 | Path | When | How |
 |------|------|-----|
-| **CI-prebuilt** (production) | Always, for supported platforms | Compiled with real clang/MSVC in the platform build jobs, linked against the bundled `libgeos_c`, stripped, shipped in the platform package |
-| **`cc()` / TinyCC** | Dev iteration; emergency fallback | `cc({ source, library: [bundled libgeos_c], symbols })` with the C source imported via `import source from "./shim.c" with { type: "file" }`; prototypes declared inline in the source so no GEOS headers are needed at runtime |
-| Pure FFI degraded mode | Not planned | Not pursued — the varargs handler makes honest pure-FFI impossible (§1.1); `cc()` fallback is strictly better |
+| **CI-prebuilt** (production) | Always, for supported platforms | Compiled with real clang/MSVC in the platform build jobs, linked against the bundled `libgeos_c`, stripped, shipped in the platform package. Link with `--disable-new-dtags` (DT_RPATH, not RUNPATH — RUNPATH is not transitive and will not resolve `libgeos.so` through the shim's own rpath; verified in Phase 0) |
+| **System compiler, dev only** | Dev iteration | One gcc/clang line — see `spike/setup.sh`; Phase 1 wraps it as a `bun run build:native` script |
+| ~~`cc()` / TinyCC~~ | **Dropped (Phase 0)** | Bun's embedded TCC cannot compile the shim: it rejects `__thread` ("thread-local storage is not supported at run time"), and thread-local capture is load-bearing (per-worker contexts, D3). Verified on linux-x64 Bun 1.4.3 |
+| Pure FFI degraded mode | Not planned | Not pursued — the varargs handler makes honest pure-FFI impossible (§1.1); Phase 0 additionally showed a JSCallback handler receives only the `"%s"` format string, so pure FFI loses the message entirely |
 
 TinyCC cannot compile C++ — irrelevant: the shim only uses the C API, and GEOS's own
-compiled units do the heavy lifting.
+compiled units do the heavy lifting. (It also cannot compile the shim's `__thread` usage at
+all — see the build table above; that is why TinyCC is out entirely.)
 
 ## 5. Testing the shim
 

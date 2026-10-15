@@ -3,9 +3,11 @@
 **Bun-native TypeScript library wrapping [GEOS](https://libgeos.org) — the geometry engine inside
 PostGIS — for complex overlays, topology repair, and boolean operations at native speed.**
 
-> **Status: design phase, pre-spike.** The library does not exist yet. This repository currently
-> holds the full research, decision record, architecture, and operations documentation produced
-> during planning (October 2026). Implementation starts with [Phase 0](docs/ROADMAP.md#phase-0--spike).
+> **Status: Phase 0 spike complete — GO.** The library does not exist yet. This repository
+> holds the full research, decision record, architecture, and operations documentation, plus
+> the completed [Phase 0 spike](docs/research/spike-results.md) (18 green tests proving the
+> FFI + shim model on Bun 1.4.3 / GEOS 3.14.1). Implementation proper starts with
+> [Phase 1](docs/ROADMAP.md#phase-1--core).
 > All APIs shown in these docs are **design targets, not contracts**.
 
 ---

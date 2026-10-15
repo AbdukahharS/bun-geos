@@ -61,12 +61,18 @@ creating context (see D11).
 4. Arena-style bulk destruction needs a loop in C, not N round trips.
 
 **Decision.** Ship `shim.c` (~300 lines) compiled by real clang/MSVC in CI, linked against
-`libgeos_c`, delivered inside each platform package. TinyCC's `cc()` (Bun's runtime C
-compiler) is a **dev/fallback** path only, never the production mechanism.
+`libgeos_c`, delivered inside each platform package. ~~TinyCC's `cc()` (Bun's runtime C
+compiler) is a **dev/fallback** path only~~ **Amendment (Phase 0 spike, Oct 2026):** the
+cc()/TinyCC fallback is **dropped** — Bun's embedded TCC rejects `__thread` ("thread-local
+storage is not supported at run time"), and thread-local error capture is load-bearing in
+the shim (D3). Dev iteration compiles with the system compiler; production with CI clang/MSVC.
 
 **Consequences.** Zero JSCallbacks and zero per-ring/per-item FFI crossings on hot paths;
 production requires no runtime compiler; the native surface is one reviewable `.c` file.
-See [shim design](design/shim.md).
+Spike evidence: the pure-FFI JSCallback handler receives only the `"%s"` format string
+(GEOS calls `handler("%s", message)`), making the shim empirically mandatory, not just
+standard-compliant. See [shim design](design/shim.md) and
+[spike results](research/spike-results.md) (F4, F7).
 
 ## D5 — Strict GEOS 3.14; no capability flags
 
@@ -92,8 +98,13 @@ System lib is an opt-in escape hatch only (`BUN_GEOS_LIBRARY`), with the same ha
 assert (D8).
 
 **Consequences.** `bun add` works everywhere with zero external steps; cost is release
-engineering (a 7-artifact build matrix) and ~4–8 MB per install. See
-[packaging](operations/packaging.md).
+engineering (a 7-artifact build matrix) and ~4–8 MB per install. **Amendment (Phase 0
+spike):** Bun's installer ignores the `libc` field (verified: `bun add sharp` installs both
+glibc and musl variants where npm installs one). Keep publishing `libc` fields — npm users
+still get single-variant installs — but Bun users on Linux download both; the loader
+self-selects via `process.report.getReport().header.glibcVersionRuntime` (verified working
+in Bun 1.4.3). See [packaging](operations/packaging.md) and
+[spike results](research/spike-results.md) (F2).
 
 ## D7 — All 8 packages live in the `@shzd` scope
 

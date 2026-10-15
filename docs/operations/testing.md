@@ -1,6 +1,6 @@
 # Operations: testing & benchmarking
 
-> Status: design target (pre-spike). Strategy informed by the language-bindings research:
+> Status: design target (post-spike). Strategy informed by the language-bindings research:
 > the JTS/GEOS shared XML corpus is free differential-testing capital, and Shapely/PostGIS
 > are the cross-implementation oracles.
 
@@ -40,7 +40,9 @@
 - **FFI value-roundtrip smoke per Bun release:** declare every arg/return type used and
   assert values survive (guards the coercion bug class — cf.
   [oven-sh/bun#44906](https://github.com/oven-sh/bun/issues/44906)); runs in a separate
-  "bun-compat" job triggered on new Bun majors.
+  "bun-compat" job triggered on new Bun majors. Seeded by
+  `spike/ffi-values.test.ts` (passes on Bun 1.4.3 — see
+  [spike results](../research/spike-results.md) F5).
 - **Worker race test:** spawn N workers that immediately load the package (regression
   net for the [#40972](https://github.com/oven-sh/bun/issues/40972) class; depends on the
   main-thread preload).

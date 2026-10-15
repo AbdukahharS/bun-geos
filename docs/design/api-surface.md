@@ -1,6 +1,6 @@
 # Design: target API surface
 
-> Status: **design target, not a contract** (pre-spike). The surface is fixed at the
+> Status: **design target, not a contract** (post-spike). The surface is fixed at the
 > GEOS 3.14 C API (D5) — no capability flags exist anywhere in this document. Method
 > names are provisional; grouping and semantics are the stable part.
 

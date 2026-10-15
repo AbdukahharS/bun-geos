@@ -1,6 +1,7 @@
 # Operations: packaging & release
 
-> Status: design target (pre-spike). Implements D6, D7, D8. Precedents: `sharp`/`@img/*`,
+> Status: design target (post-spike; install-mechanics findings in
+> [spike results](../research/spike-results.md) F2/F9). Implements D6, D7, D8. Precedents: `sharp`/`@img/*`,
 > `esbuild`/`@esbuild/*`, and — closest to our layout — `@swc/core` →
 > `@swc/core-linux-x64-gnu`, `@parcel/watcher-*`, `@tailwindcss/oxide-*`.
 
@@ -62,7 +63,7 @@ the six that don't match. Only the matching package is ever downloaded.
 |--------|----------|
 | Scoped packages are private-by-default | `publishConfig.access: "public"` in all 8 (free org accounts allow unlimited public packages) |
 | `optionalDependencies` fail **silently** at install | Release pipeline publishes platforms → verifies each resolves on the registry → *then* publishes main |
-| `libc` gating support varies by package manager/Bun version | Phase 0 spike verifies Bun's behavior; wrong-libc `dlopen` failure is caught at runtime and rethrown with a clear "install/point at the right package" message |
+| `libc` gating support varies by package manager/Bun version | **Phase 0 verified:** Bun 1.4.3 *ignores* `libc` (installs both `-gnu` and `-musl` on Linux; npm installs one). Keep the fields (npm benefits); loader self-selects at runtime via `glibcVersionRuntime`; wrong-libc `dlopen` failure still caught and rethrown with a clear "install/point at the right package" message |
 | Version drift between main and binaries | One release script bumps all 8 in lockstep; exact pins |
 
 ## 3. Loader resolution (runtime)
@@ -77,8 +78,8 @@ BUN_GEOS_LIBRARY set?
 ```
 
 Failure modes produce actionable errors: missing platform package (silent-optional case),
-wrong libc, version mismatch, `--no-addons`/`--no-ffi-cc` interaction (only affects the
-`cc()` fallback path, never production).
+wrong libc, version mismatch (the `--no-addons`/`--no-ffi-cc` flags are moot since the
+cc() fallback path was dropped — never production-relevant).
 
 ## 4. CI build matrix
 
@@ -117,6 +118,6 @@ npm provenance/trusted publishing adopted when convenient (not load-bearing).
 |------|--------|
 | `bun add` normal install | primary, fully tested |
 | `bun install --link` / workspaces | smoke-tested |
-| `bun build --compile` embedding the `.so` | **known Bun rough edges** — re-extraction each run ([#44238](https://github.com/oven-sh/bun/issues/44238)), TMPDIR leak per launch ([#40076](https://github.com/oven-sh/bun/issues/40076)); tested in Phase 0, documented status per Bun version, never silently broken |
+| `bun build --compile` embedding the `.so` | **tested in Phase 0 (Bun 1.4.3): works** — embedded `.so` dlopens via `$bunfs`, ~0.1 ms load, runs from any cwd; but leaks one `.bun-<uid>-<hash>.so` in `$TMPDIR` per run ([#40076](https://github.com/oven-sh/bun/issues/40076) live; [#44238](https://github.com/oven-sh/bun/issues/44238) not observed). Only affects user-compiled apps; document status per Bun version, never silently broken |
 | `BUN_GEOS_LIBRARY` override | tested against a mismatched-version lib (must hard-fail) |
 | Node.js | unsupported (D1); docs point out that the shim+libgeos are plain dynamic libraries, so a Node port is *possible later* but is not a goal |

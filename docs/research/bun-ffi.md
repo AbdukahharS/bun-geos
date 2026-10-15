@@ -88,10 +88,11 @@ TinyCC), links external libraries by name, and can even take `napi_env`/`napi_va
 raw JS-value interop. Notable: `--no-ffi-cc` / `--no-addons` disable it; Workers inherit
 the setting.
 
-**Our use is deliberately narrow:** dev iteration and emergency fallback for the shim
-(D4). Production always uses the CI-prebuilt shim compiled with real clang/MSVC — TinyCC
-codegen is fine for glue, but there's no reason to accept a runtime compiler dependency
-when we ship binaries anyway.
+**Update (Phase 0 spike): this path is dead for the shim.** Bun 1.4.3's embedded TCC
+(`tinycc 05f0fafa`) rejects `__thread` — "thread-local storage is not supported at run
+time" — and thread-local error capture is load-bearing in the shim (D3). Verified
+empirically; see [spike results](spike-results.md) (F7). Dev iteration uses the system
+compiler (one gcc line); production is CI-prebuilt.
 
 ## 3. Maturity assessment
 
@@ -110,9 +111,9 @@ issues; the relevant clusters:
 | Variadic callbacks impossible; non-variadic fn in a variadic call is UB | GEOS handler signature vs FFI type set | C shim installs the handlers (D4) |
 | Fresh JSCallback sharp edges (must `.close()`, re-entrancy) | Tracker cluster | No callbacks on hot paths; shim result buffers |
 | **Concurrent `dlopen()` from freshly-spawned Workers → intermittent SIGSEGV** | [#40972](https://github.com/oven-sh/bun/issues/40972) (closed 2026-08) | Preload on the main thread before spawning workers (D11) |
-| Type coercion bugs still being filed | [#44906](https://github.com/oven-sh/bun/issues/44906) (2026-10: a double passed to an i32/u32/i16 arg arrives as 0) | FFI value-roundtrip smoke tests per Bun release in CI |
-| `bun build --compile` + embedded native libs: re-extraction every run / TMPDIR leaks | [#44238](https://github.com/oven-sh/bun/issues/44238), [#40076](https://github.com/oven-sh/bun/issues/40076) | Test the `--compile` consumption mode explicitly in Phase 0; document status |
-| `cc()` can be disabled (`--no-ffi-cc`, `--no-addons`) | Docs | It's fallback-only; prebuilt shim is the production path |
+| Type coercion bugs still being filed | [#44906](https://github.com/oven-sh/bun/issues/44906) (2026-10: a double passed to an i32/u32/i16 arg arrives as 0) | FFI value-roundtrip smoke tests per Bun release in CI. **Phase 0:** bug does not reproduce on 1.4.3 — fractional values truncate C-style, boundaries exact (`spike/ffi-values.test.ts` is the CI seed) |
+| `bun build --compile` + embedded native libs: re-extraction every run / TMPDIR leaks | [#44238](https://github.com/oven-sh/bun/issues/44238), [#40076](https://github.com/oven-sh/bun/issues/40076) | **Phase 0 tested on 1.4.3:** works — dlopens via `$bunfs`, ~0.1 ms load; but leaks one `.bun-*.so` in `$TMPDIR` per run (#40076 live). Only affects user-compiled apps; re-verify per Bun release |
+| ~~`cc()` can be disabled (`--no-ffi-cc`, `--no-addons`)~~ | Docs | Moot — the cc() fallback is dropped entirely (TCC cannot compile the shim's `__thread` usage) |
 | `AsyncFunction` (threadpool FFI calls) absent from current docs | Docs | Don't build on it — concurrency comes from Workers (D11) |
 | A stable successor may exist someday | Proposal [#40331](https://github.com/oven-sh/bun/issues/40331) ("Bun.TypedFunction") | Watch; not load-bearing |
 

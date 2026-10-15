@@ -1,8 +1,9 @@
 # Design: architecture
 
-> Status: design target (pre-spike). Companion docs: [shim](shim.md),
-> [memory](memory.md), [concurrency](concurrency.md), [io](io.md),
-> [api surface](api-surface.md).
+> Status: design target; the load-bearing core (dlopen + flat-buffer roundtrip + shim error
+> path) is **proven in the Phase 0 spike** — see [spike results](../research/spike-results.md).
+> Companion docs: [shim](shim.md), [memory](memory.md), [concurrency](concurrency.md),
+> [io](io.md), [api surface](api-surface.md).
 
 ## 1. Layer diagram
 
@@ -34,14 +35,19 @@ platform package — see [packaging](../operations/packaging.md).
 
 ### Loader (`loader.ts`)
 1. Compute expected platform package name from `process.platform` / `process.arch` /
-   libc detection.
+   libc detection (spike-verified: `process.report.getReport().header.glibcVersionRuntime`
+   cleanly detects glibc in Bun 1.4.3; needed because Bun's installer *ignores* the `libc`
+   field and Linux users get both `-gnu` and `-musl` packages — spike results F2).
 2. Resolve it relative to the main package (`import.meta.resolve` /
    `createRequire(import.meta.url).resolve`).
 3. Unless `BUN_GEOS_LIBRARY` is set (D8): `dlopen` the bundled **shim**, which is already
-   linked against the bundled `libgeos_c`.
+   linked against the bundled `libgeos_c` — with `--disable-new-dtags` so DT_RPATH (not
+   RUNPATH) resolves the transitive `libgeos.so` dependency (spike results F3).
 4. Parse `GEOSversion()` (e.g. `"3.14.1-CAPI-1.18.2"`) and assert the `3.14` prefix.
    Mismatch — including via the env override — is a hard error with remediation text.
-5. Install handlers *through the shim* (never via JSCallback — D4).
+   (Spike note: `GEOSversion` is the one C API function with no `_r` variant.)
+5. Install handlers *through the shim* (never via JSCallback — D4; empirically confirmed:
+   a JSCallback handler receives only the `"%s"` format string, never the message).
 
 ### Symbol table (`symbols.ts`)
 One declarative map of every `geos_c` `_r` function we use, plus the shim exports.

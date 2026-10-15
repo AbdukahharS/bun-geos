@@ -1,6 +1,6 @@
 # Design: memory & ownership
 
-> Status: design target (pre-spike). Implements D10; consumes the ownership rules from
+> Status: design target (post-spike). Implements D10; consumes the ownership rules from
 > [GEOS research §4](../research/geos.md).
 
 ## 1. The two heaps

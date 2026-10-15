@@ -1,6 +1,6 @@
 # Design: concurrency model
 
-> Status: design target (pre-spike). Implements D3 and D11. Factual inputs:
+> Status: design target (post-spike). Implements D3 and D11. Factual inputs:
 > GEOS context handles are thread-local ([GEOS research §3](../research/geos.md));
 > concurrent `dlopen` from freshly spawned Bun Workers has caused intermittent SIGSEGVs
 > ([oven-sh/bun#40972](https://github.com/oven-sh/bun/issues/40972)).
