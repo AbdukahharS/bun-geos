@@ -8,6 +8,12 @@
 
 ## Phase 0 — Spike (kill-or-continue gate)
 
+> **Status: COMPLETE — GO** (October 2026). All exit criteria met on Linux x64/glibc
+> (Bun 1.4.3, GEOS 3.14.1). Evidence, findings, and Phase 1 carry-forwards:
+> [spike results](research/spike-results.md). Notable: libc gating is ignored by Bun's
+> installer (loader self-selects instead), and the cc()/TinyCC fallback is dropped
+> (TCC cannot compile the shim's thread-local capture).
+
 **Goal.** Prove the four riskiest assumptions on this machine, in days not weeks.
 
 1. Build GEOS 3.14 from source; `dlopen` it from Bun via `bun:ffi`.
