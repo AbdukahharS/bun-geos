@@ -1,0 +1,36 @@
+# Minimal CI: lint + typecheck + native spike tests on one ubuntu runner.
+# The full 7-platform build/publish matrix is Phase 4 (docs/ROADMAP.md).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.3" # tested pin — see docs/research/spike-results.md
+
+      - name: Install native build deps
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint (biome)
+        run: bun run lint
+
+      - name: Typecheck (tsc via bun)
+        run: bun run typecheck
+
+      - name: Build GEOS 3.14.1 + shim
+        run: ./spike/setup.sh
+
+      - name: Spike tests
+        run: bun test spike/
