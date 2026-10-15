@@ -1,0 +1,5 @@
+# Style for the C shim (native/*.c). Kept minimal: LLVM baseline with the
+# repo's 100-column limit to match Biome's formatter width (see biome.jsonc).
+BasedOnStyle: LLVM
+ColumnLimit: 100
+IndentWidth: 2
