@@ -203,7 +203,11 @@ jobs:
           BUN_GEOS_PACKAGE_DIR: ${{ github.workspace }}/packages/@shzd/bun-geos-${{ matrix.target }}
         run: |
           if [ -x /tmp/bunx64/bun-darwin-x64/bun ]; then
-            arch -x86_64 /tmp/bunx64/bun-darwin-x64/bun run scripts/platform-smoke.ts
+            # Cross build: an arm64 process cannot load x86_64 dylibs, and
+            # x64 bun under Rosetta SIGILLs once bun:ffi's JIT engages
+            # (1.4.3 — bun.report in CI). Validate the artifacts statically;
+            # execution coverage comes from native Intel macs.
+            bun run scripts/native/arch-check.ts ${{ matrix.target }} ${{ matrix.cross }}
           else
             bun run scripts/platform-smoke.ts
           fi

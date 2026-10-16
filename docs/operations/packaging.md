@@ -216,3 +216,11 @@ Switch procedure: configure ×8 → flip `release.yml` to `--auth oidc` + `permi
 id-token: write` (already declared) → publish within 2 days → revoke the token → optionally
 set "Require 2FA and disallow tokens" per package (npm's maximum-security posture). Estimated:
 one release cycle.
+
+**darwin-x64 execution coverage (2026-10):** the cross build on macos-14 is
+validated statically (`scripts/native/arch-check.ts`: every staged binary is
+x86_64) plus the usual otool licensing checks — running the dynamic smoke
+requires an x64 bun under Rosetta, which SIGILLs once `bun:ffi`'s JIT engages
+(observed on Bun 1.4.3, crash report in CI). Real Intel Macs execute the
+package natively and are unaffected; re-test Rosetta execution on every Bun
+bump before restoring a dynamic gate.
