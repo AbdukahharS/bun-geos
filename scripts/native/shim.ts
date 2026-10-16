@@ -92,9 +92,21 @@ export async function buildAndStageShim(target: Target): Promise<StagedShim> {
   const geosCPath = join(BUILD_NATIVE, target.geosCFile);
   copyFileSync(builtC, geosCPath);
 
-  // libgeos (the transitive dependency): discover the real file — its name
-  // differs per platform (libgeos.so.3.14.1 / libgeos.3.14.1.dylib / geos.dll).
-  const geosName = readdirSync(runtimeDir).find((n) => target.geosFileGlob.test(n));
+  // libgeos (the transitive dependency). On darwin, stage the EXACT name
+  // libgeos_c records as its @rpath dependency — the install tree carries
+  // several aliases (libgeos.dylib, libgeos.3.dylib, libgeos.3.14.1.dylib)
+  // and dyld resolves @rpath/<recorded-name>, not whichever alias the
+  // directory happens to list first (verified by the darwin-arm64 smoke:
+  // "Library not loaded: @rpath/libgeos.3.14.1.dylib").
+  let geosName: string | undefined;
+  if (target.os === "darwin") {
+    const otool = await $`otool -L ${builtC}`.quiet().nothrow();
+    // Skip libgeos_c's own install name (the first @rpath entry).
+    geosName = /@rpath\/(libgeos(?!_c)[^\s]*\.dylib)/.exec(otool.stdout.toString())?.[1];
+  }
+  if (!geosName) {
+    geosName = readdirSync(runtimeDir).find((n) => target.geosFileGlob.test(n));
+  }
   if (!geosName) {
     throw new Error(`shim: no libgeos matching ${target.geosFileGlob} in ${runtimeDir}`);
   }
