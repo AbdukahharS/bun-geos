@@ -3,17 +3,16 @@
  * Throwaway — the real symbol table (`src/symbols.ts`) graduates from this.
  */
 import { CString, dlopen, type Pointer } from "bun:ffi";
-import { join } from "node:path";
-
-const LIB_DIR = join(import.meta.dir, "build", "geos-install", "lib");
+import { GEOS_C_PATH } from "./native-paths.ts";
 
 /**
  * dlopen the C API library directly (no shim). The install-tree libs carry
- * their own $ORIGIN RPATH (patchelf'd in spike setup — mirroring what the
- * Phase 4 packaging will do), so the transitive `libgeos.so` dependency
- * resolves without LD_LIBRARY_PATH.
+ * their own $ORIGIN RPATH (mirroring what the Phase 4 packaging will do), so
+ * the transitive `libgeos.so` dependency resolves without LD_LIBRARY_PATH.
+ * Path resolution prefers the frozen spike tree and falls back to the Phase 1
+ * build/native tree (native-paths.ts) so CI needs only `bun run build:native`.
  */
-export const lib = dlopen(join(LIB_DIR, "libgeos_c.so.1.20.5"), {
+export const lib = dlopen(GEOS_C_PATH, {
   // context lifecycle
   GEOS_init_r: { args: [], returns: "ptr" },
   GEOS_finish_r: { args: ["ptr"], returns: "void" },

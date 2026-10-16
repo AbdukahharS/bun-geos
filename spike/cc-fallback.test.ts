@@ -8,14 +8,13 @@
 import { cc, dlopen, type Pointer } from "bun:ffi";
 import { expect, test } from "bun:test";
 import { join } from "node:path";
-import { LIB_DIR } from "./shim.ts";
+import { GEOS_C_PATH } from "./native-paths.ts";
 
-const GEOS_C = join(LIB_DIR, "libgeos_c.so.1.20.5");
 const SHIM_C = join(import.meta.dir, "..", "native", "shim.c");
 
 // dlopen the C lib first so the process already holds it; then try cc()
 // variants for compiling/linking the shim source against it.
-dlopen(GEOS_C, { GEOS_init_r: { args: [], returns: "ptr" } });
+dlopen(GEOS_C_PATH, { GEOS_init_r: { args: [], returns: "ptr" } });
 
 interface ShimLib {
   symbols: {
@@ -41,7 +40,7 @@ function tryCc(label: string, library: string[]): boolean {
     const ctx = lib.symbols.geos_shim_context(s);
     if (!ctx) throw new Error("context NULL");
     // force a GEOS failure and read it back through THIS shim instance
-    const ops = dlopen(GEOS_C, {
+    const ops = dlopen(GEOS_C_PATH, {
       GEOSGeomFromWKT_r: { args: ["ptr", "cstring"], returns: "ptr" },
     });
     const g = ops.symbols.GEOSGeomFromWKT_r(ctx, "POLYGON((");
@@ -60,7 +59,7 @@ function tryCc(label: string, library: string[]): boolean {
 }
 
 test("cc()/TinyCC can compile the shim source and capture GEOS errors", () => {
-  const byAbsPath = tryCc("library: [<abs .so>]", [GEOS_C]);
+  const byAbsPath = tryCc("library: [<abs .so>]", [GEOS_C_PATH]);
   const byName = tryCc('library: ["geos_c"]', ["geos_c"]);
 
   if (!byAbsPath && !byName) {

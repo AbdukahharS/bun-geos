@@ -7,9 +7,10 @@
 
 import { dlopen } from "bun:ffi";
 import { expect, test } from "bun:test";
-import { join } from "node:path";
 
-const values = dlopen(join(import.meta.dir, "build", "values.so"), {
+import { VALUES_PATH } from "./native-paths.ts";
+
+const values = dlopen(VALUES_PATH, {
   echo_i32: { args: ["i32"], returns: "i32" },
   echo_u32: { args: ["u32"], returns: "u32" },
   echo_i16: { args: ["i16"], returns: "i16" },
@@ -81,7 +82,7 @@ test("ptr identity: the address C receives is the buffer's address", () => {
   const recovered = tagged ^ BigInt(tag);
   // the recovered address must point AT our memory: C can prove it by
   // reading the first double through the recovered pointer
-  const peekAt = dlopen(join(import.meta.dir, "build", "values.so"), {
+  const peekAt = dlopen(VALUES_PATH, {
     peek_f64: { args: ["ptr", "u32"], returns: "f64" },
   });
   buf[0] = 123.456;

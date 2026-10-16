@@ -22,13 +22,13 @@
 
 import { CString, dlopen, type Pointer } from "bun:ffi";
 import { expect, test } from "bun:test";
-import { join } from "node:path";
 import { gc } from "bun";
 import { type Ctx, lib, polygonFromXY, withContext } from "./lib.ts";
-import { LIB_DIR, shim, withShim } from "./shim.ts";
+import { GEOS_C_PATH } from "./native-paths.ts";
+import { shim, withShim } from "./shim.ts";
 
 /** Same libgeos_c, two binding namespaces (dlopen dedupes by inode). */
-const STR_LIB = join(LIB_DIR, "libgeos_c.so.1.20.5");
+const STR_LIB = GEOS_C_PATH;
 const strCstr = dlopen(STR_LIB, {
   GEOSGeomToWKT_r: { args: ["ptr", "ptr"], returns: "cstring" },
 });

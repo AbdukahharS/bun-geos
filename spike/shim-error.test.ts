@@ -5,10 +5,10 @@
 
 import { CString, dlopen, JSCallback, type Pointer } from "bun:ffi";
 import { expect, test } from "bun:test";
-import { join } from "node:path";
-import { GeosError, LIB_DIR, readWKT, shim, withShim } from "./shim.ts";
+import { GEOS_C_PATH } from "./native-paths.ts";
+import { GeosError, readWKT, shim, withShim } from "./shim.ts";
 
-const GEOS_C = join(LIB_DIR, "libgeos_c.so.1.20.5");
+const GEOS_C = GEOS_C_PATH;
 
 test("error path: malformed WKT → GeosError carries the GEOS message", () => {
   withShim((h) => {

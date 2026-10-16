@@ -1,5 +1,5 @@
-# Minimal CI: lint + typecheck + native spike tests on one ubuntu runner.
-# The full 7-platform build/publish matrix is Phase 4 (docs/ROADMAP.md).
+# Phase 1 CI: lint + typecheck + native build + full test suite + ASan shim gate.
+# Single ubuntu job (the 7-platform build/publish matrix stays Phase 4).
 name: ci
 
 on:
@@ -29,8 +29,22 @@ jobs:
       - name: Typecheck (tsc via bun)
         run: bun run typecheck
 
-      - name: Build GEOS 3.14.1 + shim
-        run: ./spike/setup.sh
+      - name: Cache native build
+        uses: actions/cache@v4
+        with:
+          path: |
+                vendor/geos
+                build/native/geos-install
+          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/build-native.ts') }}
 
-      - name: Spike tests
+      - name: Build GEOS 3.14.1 + shim
+        run: bun run build:native
+
+      - name: Unit + properties + soak + differential tests
+        run: bun test test/
+
+      - name: ASan/UBSan shim selftest (native hygiene gate)
+        run: bun run test:native
+
+      - name: Spike tests (FFI semantics regression net per Bun bump)
         run: bun test spike/
