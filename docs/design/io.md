@@ -68,8 +68,8 @@ conversions, and (d) trivially structured-cloned to Workers.
   roundtrip preserves SRID — covered by a differential test in
   `test/unit/io.test.ts`; the live-PostGIS oracle stays Phase 2.
 - Batch paths (`readWKBMany(buf, offsets) → Geometry[]`) go through the shim (one call
-  per array) — the fast ingest for exports from databases. (Phase 3, with the shim's
-  batch WKB codec.)
+  per array) — the fast ingest for exports from databases. **(Phase 3: shipped —
+  `geos.fromWKBMany`, with JS-side offset validation; the shim's batch WKB codec.)**
 
 ## 5. GeoArrow specifics
 

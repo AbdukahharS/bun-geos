@@ -68,20 +68,44 @@ const out2 = geos.intersection(a, b, { signal });                      // pre-ch
 - Guidance in docs: anything expected to exceed ~a frame belongs on a Worker — the
   `parallel.*` mirrors exist to make that the easy path, not the expert path.
 
-## 4. `geos.parallel()` — worker-pool helper (Phase 3)
+## 4. `geos.parallel` — worker-pool helper (Phase 3 — **implemented, D23**)
 
-Sketch (chunking semantics are on the [open design list](../decisions.md)):
+Decided and implemented (decisions.md D23; `src/parallel/`):
 
-- A lazily-spawned pool (default: `navigator.hardwareConcurrency - 1`, clamped), each
-  Worker owning one `Geos`.
-- Batch ops chunk their input by cumulative vertex count (not by geometry count — one
-  10⁶-vertex geom is not a fair "chunk of 1000").
-- Inputs cross as WKB or GeoArrow buffers; results return the same way (the canonical
-  currency makes chunking nearly free — D9).
-- Chunk-local failures aggregate into a single `GeosError` with per-chunk diagnostics.
-- `signal` propagates to every in-flight chunk; the pool drains idempotently.
-- Determinism note: overlay results are deterministic per chunk, but `parallel.unionAll`
-  must preserve a defined concat order (documented: input order, strategy-dependent).
+- A lazily-spawned pool (default: `clamp(navigator.hardwareConcurrency - 1, 1, 8)`,
+  `concurrency` option), each Worker owning one `Geos`. First use happens on
+  the main thread after the loader has run — the D11 preload rule holds by
+  construction. Dispose = shutdown-ack per worker, then terminate (leak-safe).
+- **Chunking is by cumulative vertex count** (weights from one
+  `geos_shim_num_points_many` crossing — type-generic: polygons sum rings,
+  collections recurse, in C), cut in input order, ~`chunkFactor × workers`
+  chunks (default 2), floor `minChunkGeoms = 64`. Below `minChunkGeoms × 2`
+  items the op runs on the calling thread (pool overhead dominates).
+- **Inputs cross as WKB buffers** (transfer lists) — one `fromWKBMany`
+  crossing per chunk on the worker; geometry results return as WKB and are
+  re-read with one crossing; masks/measures cross as typed arrays. Arrow
+  input normalizes on the calling thread before serialization.
+- **Chunk-local failures aggregate** into one `GeosParallelError` with
+  per-chunk string diagnostics (all-or-nothing, D21/D22).
+- **`signal` propagates by partition** (D23.4): the main thread's listener
+  flips the global flag directly (it is not blocked — the op runs on
+  workers); workers unwind through GEOS interrupt checks; the pool resets
+  the flag in `finally`. At most ONE signal-taking parallel op is in flight
+  per pool; further ones queue. **Honest bounds:** the flag is
+  process-global, so concurrent no-signal pool ops and main-thread
+  `withSignal` ops still READ it — a foreign abort can fail their in-flight
+  chunks; the partition fixes the flag-ERASURE race, not reader isolation.
+  Hard isolation = one pool per process.
+- **Determinism note:** results reassemble in input order;
+  `parallel.unionAll` is per-chunk `unionAll(strategy)` + one final
+  `disjointSubset` union — a valid union, but bitwise identity with the
+  main-thread result is not guaranteed for chunks > 1.
+- **Engine-flake note (Bun 1.4.3, D23.7):** worker children can die
+  pre-handshake without a parent-side signal, and dispatch from a large
+  fragmented heap can deadlock the parent in a futex wait. The pool reaps on
+  `error`/`exit` + watchdogs (`jobTimeoutMs`) and fails loudly; run
+  pool-heavy, long-lived hosts on dedicated processes (as the bench does) and
+  re-verify on Bun bumps.
 
 ## 5. Anti-patterns this design forbids
 

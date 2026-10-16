@@ -88,8 +88,37 @@ Default to Bun for everything (Bun 1.4.x, TypeScript ^7 native as peerDependency
   set on return.
 - Coverage/repair outputs are OWNED clones (`geos_shim_clone_members`), never
   borrowed views into an internal collection; error diagnostics are strings (D21).
-- src/ may not `console.log` (Biome `noConsole`); scripts/, spike/, and test/bench/
+- src/ may not `console.log` (Biome `noConsole`); scripts/, spike/, bench/, and test/
   may.
+
+## Phase 3 house rules (from docs/decisions.md D22–D25 — binding)
+
+- New shim batch functions (`geos_shim_*_all`) follow the D18 contract exactly:
+  return `0 ok / 1 exception / 2 interrupted`; **partial C outputs are destroyed
+  before returning** (shared `destroy_partials`); interrupt checks between items.
+  Op-id tables in the shim (`SHIM_OVERLAY_*`/`SHIM_PRED_*`/`SHIM_MEASURE_*`)
+  MUST match `OverlayOp`/`UnpreparedPred`/`MeasureOp` in `src/types.ts` and are
+  pinned by known-answer selftests (scenarios 20–28) — never renumber casually.
+- `GEOSGeomGetNumPoints_r` is LINESTRING-ONLY: any type-generic vertex counting
+  goes through the shim's `vertex_count` (polygons sum rings, collections
+  recurse) — never call the raw accessor on arbitrary geometry.
+- Batch outputs wrap via `Geos.takeMany`; batch inputs normalize through
+  `withBatchInputs`, which captures the caller's arena BEFORE opening the
+  transient one — never capture `currentArena()` inside its callback (that
+  grabs the transient arena and frees the outputs: a measured use-after-free).
+- Element-wise batch naming is `*All` (`intersectionAll(a, bs)[i] =
+  intersection(a, bs[i])`); `unionAll(gs)` stays the aggregate (D20). No
+  element-wise `unionAll(a, bs)`, ever.
+- `geos.parallel` (D23): at most ONE signal-taking parallel op in flight per
+  pool; results reassemble in input order; failures aggregate into
+  `GeosParallelError` (strings only); workers get the shutdown-ack protocol
+  (`bye` before terminate). Worker jobs carry watchdogs (`jobTimeoutMs`);
+  the Bun 1.4.3 worker-dispatch flake (parent futex-deadlock under heap
+  churn) is re-verified on every Bun bump — the bench runs the pool suite in
+  a dedicated process (`bench/parallel.ts`), keep it that way.
+- Batch measure/mask output arrays are discarded wholesale on failure
+  (all-or-nothing) — the C side may leave prefix entries written; that is
+  fine, but C-side geometry outputs are always fully destroyed.
 
 ## Reference
 

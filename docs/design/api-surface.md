@@ -18,6 +18,21 @@
 > `orientPolygons` and the interrupt plumbing shipped alongside (io.md §3 /
 > D19). Batch input forms take `Geometry[]` in Phase 2; ArrowArray normalization
 > lands with the Phase 3 batch layer.
+>
+> **Phase 3 status (Oct 2026):** batch + parallel §§ are IMPLEMENTED (D22/D23).
+> Batch input forms accept `Geometry[] | ArrowArray` everywhere (the ArrowArray
+> normalization note above is resolved — bulk builders in the shim, transient
+> arena; Arrow offsets are validated in JS before any crossing — negatives
+> would wrap as unsigned in C). Element-wise `*All` naming: `intersectionAll(a, bs)`
+> is ELEMENT-WISE (`result[i] = intersection(a, bs[i])`), matching the masks;
+> `unionAll(gs)` remains the Phase 2 aggregate — there is deliberately no
+> element-wise `unionAll(a, bs)`. `geos.parallel.*` mirrors the batch surface's
+> core (overlay, the nine unprepared masks, measures incl. hausdorff/frechet,
+> bufferAll, makeValid, unionAll) returning Promises; the `*Prec` overlay
+> variants stay main-thread. Chunking/interrupt/failure semantics in D23 +
+> concurrency.md §4. `STRtree.queryFilter(env, prep, pred)` is the fused
+> helper the sketch below pointed at. `statsPrecise()`/`arenaHighWater` per
+> D24.
 
 ## Conventions
 

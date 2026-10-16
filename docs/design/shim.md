@@ -15,6 +15,25 @@
 > (D20/D21). ~790 lines total; scenarios for every addition live in
 > `test/native/shim_selftest.c` under ASan/UBSan, including a known-answer mask
 > table pinning all ten prepared predicate ids.
+>
+> **Phase 3 status (Oct 2026):** the batch op layer is implemented (D22) —
+> `geos_shim_overlay_all` (8-op id table: {intersection, union, difference,
+> symDifference} × {plain, Prec}), `geos_shim_pred_all` (9 unprepared masks),
+> `geos_shim_measure_all` (area/length/distance/hausdorff/frechet),
+> `geos_shim_buffer_all` (caller-provided params, built once),
+> `geos_shim_read_wkb_many` (takes the TS-pooled `GEOSWKBReader*`; byte
+> offsets — the one offset family measured in bytes; u32 caps one buffer at
+> 4 GB, documented), `geos_shim_num_points_many`
+> (type-generic vertex counts for parallel chunking — the C API's
+> `GEOSGeomGetNumPoints_r` is linestring-only AND throws on points, so the
+> shim sums polygon rings, recurses into collections, and counts points as
+> 0/1), `geos_shim_heap_bytes` (D24 accounting),
+> bulk Arrow builders (`build_polygonal_many`/`build_linestrings_many`), and
+> the fused `geos_shim_strtree_query_prepared` (query + prepared filter +
+> compaction, one crossing). Every function follows the D18 contract (0 ok /
+> 1 exception / 2 interrupted; partial outputs destroyed before returning —
+> the shared `destroy_partials` helper) and is pinned by selftest scenarios
+> 20–28 under ASan/UBSan/LSan. ~1200 lines total.
 
 ## 1. Why a shim is mandatory (not an optimization)
 
@@ -72,9 +91,11 @@ void          geos_shim_destroy_many(GeosShim*, GEOSGeometry** geoms, unsigned i
 void          geos_shim_interrupt_request(void);
 void          geos_shim_interrupt_reset(void);
 
-/* Optional batch WKB codec (Phase 3). */
-unsigned int  geos_shim_read_wkb_many(GeosShim*, const unsigned char* buf,
-                                      const unsigned int* offsets, unsigned int n,
+/* Optional batch WKB codec (Phase 3 — implemented taking the TS-pooled
+ * reader as its first argument, so pooling stays per-Geos). */
+int           geos_shim_read_wkb_many(GeosShim*, GEOSWKBReader* reader,
+                                      const unsigned char* buf,
+                                      const unsigned int* byteOffsets, unsigned int n,
                                       GEOSGeometry** out);
 ```
 

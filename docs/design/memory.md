@@ -70,14 +70,20 @@ documented on the API:
 
 ## 5. Making the invisible heap visible
 
-Each `Geos` maintains counters fed by the shim (create/destroy hooks):
+Each `Geos` maintains counters fed by JS-side registration plus shim
+crossings (D10; implemented per Phase 3's D24):
 
-- live geometry count, approximate C-heap bytes,
-- arena high-water marks.
+- `geos.stats` — live geometry count, floor byte estimate, finalizer reaps,
+  peak live count, **arena high-water mark** (Phase 3). Pure JS counting,
+  safe on hot paths.
+- `geos.statsPrecise()` (Phase 3) — ONE shim crossing over the live pointer
+  set: 64 bytes + vertices × coordinate dimension × 8 per geometry.
+  Data-derived but still documented approximate (M ordinates are not
+  per-geometry detectable on the C API).
 
-Exposed as `geos.stats` and included in leak-test assertions. This is the go-geos lesson
-(their README's "Memory management" warning) answered with instrumentation instead of
-apology.
+Both are included in leak-test assertions (`test/soak/`, the CI nightly job,
+D24). This is the go-geos lesson (their README's "Memory management" warning)
+answered with instrumentation instead of apology.
 
 ## 6. Pitfall checklist (encoded in tests)
 

@@ -376,8 +376,142 @@ ever shows in profiles).
 
 ---
 
+## D22 — Batch op layer: one shim call per array, opId tables, all-or-nothing; the ≥5× axis moved to the pool
+
+**Context.** ROADMAP Phase 3: "many-geometry overlay/predicate loops executed
+in C (one FFI call per array — the literal Shapely-2.0 lesson)". The D18
+prepared-mask machinery proved the pattern; Phase 3 generalizes it to overlay,
+unprepared predicates, measures, buffer, batch WKB read, bulk Arrow builders,
+and chunk weights.
+
+**Decision.** A uniform `geos_shim_*_all` surface following D18 exactly: JS
+passes a pointer array + a preallocated output array; the C loop checks the
+atomic interrupt flag between items; first GEOS exception aborts the whole
+call and **destroys partial C outputs before returning** (`0 ok / 1 exception
+/ 2 interrupted`). Op-id tables (`SHIM_OVERLAY_*`/`SHIM_PRED_*`/
+`SHIM_MEASURE_*`) mirror `OverlayOp`/`UnpreparedPred`/`MeasureOp` in
+`src/types.ts` and are pinned by known-answer selftests (the `PreparedPred`
+discipline). Batch inputs accept `Geometry[]` **or** Arrow-shaped values —
+Arrow normalizes through bulk polygon/linestring builders. Arena handoff
+(audited twice — the second audit caught the pool's async half): the SYNC
+layer's `withBatchInputs` captures the caller's arena BEFORE opening the
+transient one; the POOL's `withBatchInputsAsync` goes further and runs its
+input arena **UNPUSHED** (explicit registration, never on the `currentArena`
+stack), so nested main-API calls inside the pool cannot capture it, and
+result materialization happens only after it closes. `Geos.takeMany` wraps n
+owned pointers with full registration (stats + arena + finalization
+backstop). There is deliberately NO element-wise `unionAll(a, bs)` — the
+name is the Phase 2 aggregate (D20).
+
+**Consequences — measured, and honestly stated.** Bun 1.4.x's engine-native
+FFI makes per-object calls cheap (~tens of ns), so on THIS Bun the main-thread
+batch paths converge toward GEOS's own per-item cost: ~1× on overlay workloads
+(GEOS-bound; wrapper construction remains in both paths), 0.8–1.2× on
+masks/measures (the singular path is already near-optimal). The batch layer's
+measured ≥5× axis is the **worker pool** (D23): `parallel makeValid` at 10⁵
+geometries measures ~3.9–5× over per-object calls across runs (best-of-3;
+concurrency 12 + chunkFactor 3) — the ratio is bounded by main-thread WKB
+serialization of the inputs, which pipelining reduces but cannot eliminate;
+per-workload numbers live in `bench/results.json` + `docs/benchmarks.md`. The
+one-crossing property stays load-bearing for: between-item interrupt
+granularity, all-or-nothing error contracts, and future Bun versions where
+per-call costs regress.
+
+## D23 — `geos.parallel`: lazily-spawned worker pool, WKB transfer currency, chunk-by-cumulative-vertex-count, single-flight interrupt rule
+
+**Context.** decisions.md open item #1 ("worker ownership rules —
+`parallel()` chunking semantics, AbortSignal plumbing") and the D19 known
+limit (process-global interrupt flag; concurrent flag-taking ops erase each
+other's resets).
+
+**Decision.**
+1. **Pool**: lazily spawned on first `geos.parallel` use — after the main
+   thread has loaded the libraries (D11 by construction). Size =
+   `clamp(hardwareConcurrency − 1, 1, 8)` (`concurrency` option). Each Worker
+   owns exactly one `Geos` (D3). The pool is a consumable: context dispose
+   shuts it down via a **shutdown-ack protocol** (ack before terminate — a
+   terminated worker skips its Geos disposal and leaks the C session; the
+   interrupt-worker lesson promoted to the protocol).
+2. **Transfer currency = WKB**: geometries never cross (D11). Chunks go out
+   as one WKB buffer + byte offsets via postMessage **transfer lists**;
+   geometry results come back the same way and re-read with one
+   `fromWKBMany` crossing. Masks/measures cross as typed arrays.
+3. **Chunking** (concurrency.md §4's TBD, now decided): weights from ONE
+   `geos_shim_num_points_many` crossing (type-generic vertex counts — the C
+   API's `GEOSGeomGetNumPoints_r` is linestring-only AND throws on points
+   (SimpleCurve cast), so the shim sums polygon rings, recurses into
+   collections, and counts points as 0/1 — all in C); cuts in **input order**
+   by cumulative vertex count, ~`chunkFactor × workers` chunks (default 2),
+   floor `minChunkGeoms` (default 64). Below `minChunkGeoms × 2` items the op
+   runs on the calling thread — pool overhead dominates small batches.
+   Results reassemble in input order (documented determinism).
+4. **Interrupt partition** (fixes the D19 known limit, within its documented
+   bounds): the op runs on workers, so the MAIN thread stays free — its
+   abort listener flips the shim's atomic global flag directly, GEOS sees it
+   inside the workers' C loops, and the pool resets the flag in `finally`
+   (uniform `op: "aborted"` shape, D19 contract). The rule that makes the
+   global flag safe: **at most ONE signal-taking parallel op in flight per
+   pool** (others queue); ops without a signal bypass the gate. HONEST
+   BOUNDS (audit): the flag is still process-global — a concurrent
+   no-signal pool op's workers READ the same flag, so a foreign abort can
+   fail their in-flight chunks too, and a concurrent main-thread
+   `withSignal` op can re-shape a foreign `Interrupted!` as its own. The
+   partition fixes the flag-ERASURE race (reset vs request); it cannot
+   isolate readers. Hosts needing hard isolation run one pool per process.
+5. **Failure aggregation**: all-or-nothing (D18/D22) — every chunk failure is
+   collected (`Promise.allSettled`) and the op rejects with one
+   `GeosParallelError` carrying per-chunk STRING diagnostics (D21).
+6. **Determinism**: `parallel.unionAll` = per-chunk `unionAll(strategy)` +
+   ONE final `unionAll(disjointSubset)` on the calling thread — a valid union,
+   but bitwise identity with the main-thread result is NOT guaranteed for
+   chunks > 1 (union is order-sensitive at float level).
+7. **Engine-flake defenses** (measured on Bun 1.4.3): worker child processes
+   can die pre-handshake with no parent-side signal, and dispatch from a
+   large fragmented heap can deadlock the parent in an engine-internal futex
+   wait (main thread blocked in native code — no JS watchdog can fire).
+   Library defenses: `error` AND `exit` handlers reap dead workers;
+   startup + job watchdogs (`jobTimeoutMs`, default 120s) terminate and
+   fail loudly; long-running hosts should keep heavy churn off the pool
+   path or run pool work in dedicated processes (the bench harness does
+   exactly that — `bench/parallel.ts`). Re-verify on every Bun bump
+   (the FFI smoke-test gate).
+
+## D24 — Memory accounting: data-derived `statsPrecise()`, arena high-water marks, CI leak soak
+
+**Context.** memory.md §5 promised "counters fed by the shim (create/destroy
+hooks)" — but routing every create/destroy through the shim would change the
+architecture (all `geos_c` calls would need shim wrappers). Rejected.
+
+**Decision.** Keep `geos.stats` a cheap JS-side counting surface (floor byte
+estimate = liveGeoms × 64). Add:
+1. `geos.statsPrecise()` — ONE shim crossing (`geos_shim_heap_bytes`) over
+   the live pointer set: per geometry 64 bytes + vertices × coordinate
+   dimension × 8. Data-derived, still documented approximate (M ordinates
+   are not per-geometry detectable on the C API).
+2. `GeosStats.arenaHighWater` — max geometries under open arenas at any one
+   time.
+3. The long-run soak (`SOAK_SCALE=large`, `bun run test:soak`, nightly CI):
+   batch-op arena churn + parallel-pool ops must return stats/`statsPrecise`
+   to baseline with RSS bounded (testing.md §3 thresholds).
+
+## D25 — Benchmarks: seeded generators, machine metadata, published results
+
+**Decision.** Shared seeded generators (`bench/lib/gen.ts`) so every engine
+measures identical inputs; results.json schema v2 carries machine metadata
+(CPU model, Bun + GEOS versions, hw threads, commit); `bench:report` renders
+`docs/benchmarks.md`; competitor adapters (`geos-wasm`/`turf`/
+`polygon-clipping`) are optional devDependencies behind
+`bench/competitors/run.ts` with runtime API checks — skipped, never failing,
+when not installed; Shapely 2 stays a conceptual baseline. The parallel-pool
+suite runs as its own process (`bench/parallel.ts`) — isolation is both the
+D23 engine-flake workaround and better methodology. Positioning rule
+unchanged: robust overlays, repair, indexed/batched workloads only.
+
+---
+
 ## Open design work (tracked, not yet decided in detail)
 
-1. **Worker ownership rules** — `parallel()` chunking semantics, AbortSignal plumbing.
+1. ~~Worker ownership rules — `parallel()` chunking semantics, AbortSignal
+   plumbing~~ **Decided in Phase 3** (D22/D23).
 2. **CI build matrix runbook** — per-platform flags, stripping, packaging, provenance.
 3. **Full API reference draft** — JS API ↔ `geos_c` symbol mapping table.
