@@ -8,6 +8,9 @@ node_modules
 # phase 1: dev native build tree (scripts/build-native.ts)
 /build
 
+# phase 4: staged publish trees (scripts/package-*.ts) + per-run .npmrc
+/packages
+
 # output
 out
 dist
