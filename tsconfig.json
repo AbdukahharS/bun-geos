@@ -25,6 +25,14 @@
     "noUncheckedSideEffectImports": true,
     "forceConsistentCasingInFileNames": true,
 
+    // scripts/install-overlay.ts imports the package by name (it runs from
+    // a CONSUMER project's node_modules in the install matrix). In-repo,
+    // types resolve to the local source; consumer runs have no tsconfig and
+    // resolve the real installed package.
+    "paths": {
+      "@shzd/bun-geos": ["./index.ts"]
+    },
+
     // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
