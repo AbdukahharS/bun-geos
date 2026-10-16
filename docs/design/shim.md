@@ -78,6 +78,21 @@ Rules the code follows:
 - Every failure path stores a message in thread-local state and returns a sentinel;
   **nothing throws through the FFI boundary**.
 
+Two ownership rules verified against GEOS 3.14's `geos_ts_c.cpp` during Phase 1
+(they are load-bearing — getting either wrong is a double free under ASan):
+
+1. **GEOS consumes collection/polygon/linestring/point inputs EVEN ON FAILURE.**
+   `GEOSGeom_createCollection_r` (and the `createPolygon`/`createLineString`/
+   `createPoint` family) moves the inputs into `unique_ptr`s *before* the type
+   switch / geometry construction, so when the call fails (unsupported typeId, an
+   unclosed ring throws) the inputs are already owned — and freed — by GEOS's
+   unwinding smart pointers. The shim therefore frees only what IT allocated (the
+   ring pointer array) on those failure paths, and never destroys consumed inputs.
+2. **`destroy_many` frees the geometries, never the array** when the array is
+   JS-owned (a `BigUint64Array` the GC manages). The "frees the pointer array"
+   wording above applies to arrays the *shim itself* allocates (strtree query
+   results, Phase 2).
+
 ## 3. What deliberately does *not* go in the shim
 
 The shim is not a wrapper library. Predicates, overlay ops, buffer, measures, MakeValid,

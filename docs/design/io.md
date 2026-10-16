@@ -44,10 +44,15 @@ conversions, and (d) trivially structured-cloned to Workers.
   ordinates, got 3` instead of a C-level "ParseException". Correctness errors are data
   errors; they deserve data-shaped messages (D13).
 - RFC 7946 compliance notes: members other than `type`/`coordinates`/`geometries` are
-  preserved on round-trip via a side-channel (geometry-level user data), not merged into
+  preserved on round-trip via a side-channel (geometry-level `userData`), not merged into
   the GEOS object; **ring winding is preserved as input** — RFC 7946's right-hand-rule
-  recommendation is surfaced as an explicit `geos.orientPolygons(g, "ccw")` helper
-  (`GEOSOrientPolygons`) rather than silent normalization.
+  recommendation is surfaced as an explicit `orientPolygons` helper (Phase 2,
+  `GEOSOrientPolygons`) rather than silent normalization.
+- **Ring-closure policy (frozen in Phase 1, M5):** polygon rings are NORMALIZED on
+  input — unclosed rings are auto-closed by appending a copy of the first
+  coordinate; rings with fewer than 3 distinct positions are rejected with a
+  precise `GeosError` (`ring 0 has 2 positions; need ≥ 3`). Empty `coordinates`
+  produce typed empties (`POLYGON EMPTY`). Output preserves what GEOS holds.
 - Empty geometries: typed empties per GEOS (`POLYGON EMPTY` etc.), consistent with the
   Shapely-2.0 target behavior; `POINT (NaN NaN)` WKB quirk handled in the WKB layer.
 
@@ -56,13 +61,15 @@ conversions, and (d) trivially structured-cloned to Workers.
 - Reader/writer options exposed: output dimension (2/3/4, incl. the 3.14
   `GeoJSONWriter_setOutputDimension` analog for GeoJSON), byte order (native default,
   big-endian for goldens), include-SRID.
-- **PostGIS/EWKB note (Phase 1 I/O item, not Phase 0):** PostGIS `bytea` is EWKB (SRID flag + optional
-  Z/M flags). GEOS reads it; SRIDs ride along as our side-channel property
-  (`geometry.srid`), since the core C API has no SRID storage. Round-tripping a PostGIS
-  bytea must preserve SRID — covered by a dedicated differential test against a live
-  PostGIS.
+- **PostGIS/EWKB note:** PostGIS `bytea` is EWKB (SRID flag + optional Z/M flags).
+  GEOS reads it; **SRIDs are stored natively** via `GEOSGetSRID_r`/`GEOSSetSRID_r`
+  (present in 3.14's geos_c.h — verified in Phase 1; the earlier "no SRID
+  storage, JS side-channel" note was wrong and is dropped). A PostGIS `bytea`
+  roundtrip preserves SRID — covered by a differential test in
+  `test/unit/io.test.ts`; the live-PostGIS oracle stays Phase 2.
 - Batch paths (`readWKBMany(buf, offsets) → Geometry[]`) go through the shim (one call
-  per array) — the fast ingest for exports from databases.
+  per array) — the fast ingest for exports from databases. (Phase 3, with the shim's
+  batch WKB codec.)
 
 ## 5. GeoArrow specifics
 

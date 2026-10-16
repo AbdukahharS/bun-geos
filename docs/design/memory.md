@@ -89,4 +89,7 @@ apology.
 | STRtree item pointers stored raw in JS | items are integer ids, never pointers |
 | WKB output `Uint8Array` aliasing C memory | boundary always copies; C side freed immediately |
 | Geometry used after dispose | wrapper flags disposed; use throws (debug) / is a no-op-safe error |
+| Borrowed view used after its parent was disposed | view holds a weak parent ref; use throws `TypeError` (Phase 1, audit H1 — GEOS has no liveness query, so this is wrapper-side) |
+| Finalizer ABA: stale queued finalizer destroys a recycled address | live-map entries carry the owning token; reap/destroy/renounce verify token identity before freeing (Phase 1, audit C1) |
+| Transferred collection parts freed twice (duplicates / borrowed views) | `fromParts(transfer)` rejects duplicates and non-owned parts up front; renounce runs before the (throwing) take (audit C2) |
 | Finalizer re-entering FFI at teardown | finalizers never run during `process` exit path; orphans reported |
