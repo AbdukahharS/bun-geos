@@ -51,6 +51,8 @@ typedef struct GEOSCoordSequence GEOSCoordSequence;
 typedef struct GEOSGeometry GEOSGeometry;
 typedef struct GEOSPreparedGeometry GEOSPreparedGeometry;
 typedef struct GEOSSTRtree GEOSSTRtree;
+typedef struct GEOSWKBReader GEOSWKBReader;
+typedef struct GEOSBufferParams GEOSBufferParams;
 typedef void (*GEOSMessageHandler_r)(const char *fmt, ...);
 
 extern GEOSContextHandle_t GEOS_init_r(void);
@@ -110,6 +112,53 @@ extern char GEOSPreparedWithin_r(GEOSContextHandle_t handle, const GEOSPreparedG
 extern char GEOSPreparedRelatePattern_r(GEOSContextHandle_t handle, const GEOSPreparedGeometry *pg,
                                         const GEOSGeometry *g, const char *im);
 
+/* Phase 3 batch op layer: overlay/precision, unprepared predicates,
+ * measures, buffer, batch WKB read, vertex counts, heap accounting. */
+extern GEOSGeometry *GEOSIntersection_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                        const GEOSGeometry *);
+extern GEOSGeometry *GEOSUnion_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+extern GEOSGeometry *GEOSDifference_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                      const GEOSGeometry *);
+extern GEOSGeometry *GEOSSymDifference_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                         const GEOSGeometry *);
+extern GEOSGeometry *GEOSIntersectionPrec_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                            const GEOSGeometry *, double);
+extern GEOSGeometry *GEOSUnionPrec_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                     const GEOSGeometry *, double);
+extern GEOSGeometry *GEOSDifferencePrec_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                          const GEOSGeometry *, double);
+extern GEOSGeometry *GEOSSymDifferencePrec_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                             const GEOSGeometry *, double);
+
+extern char GEOSIntersects_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+extern char GEOSContains_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+extern char GEOSCoveredBy_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+extern char GEOSCovers_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+extern char GEOSCrosses_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+extern char GEOSDisjoint_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+extern char GEOSOverlaps_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+extern char GEOSTouches_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+extern char GEOSWithin_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *);
+
+extern int GEOSArea_r(GEOSContextHandle_t, const GEOSGeometry *, double *);
+extern int GEOSLength_r(GEOSContextHandle_t, const GEOSGeometry *, double *);
+extern int GEOSHausdorffDistance_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *,
+                                   double *);
+extern int GEOSFrechetDistance_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *,
+                                 double *);
+
+extern GEOSGeometry *GEOSBufferWithParams_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                            const GEOSBufferParams *, double);
+extern GEOSGeometry *GEOSWKBReader_read_r(GEOSContextHandle_t, GEOSWKBReader *reader,
+                                          const unsigned char *wkb, size_t size);
+extern int GEOSGeomGetNumPoints_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern int GEOSGeom_getCoordinateDimension_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern int GEOSGeomTypeId_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern const GEOSGeometry *GEOSGetExteriorRing_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern int GEOSGetNumInteriorRings_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern const GEOSGeometry *GEOSGetInteriorRingN_r(GEOSContextHandle_t, const GEOSGeometry *, int);
+extern char GEOSisEmpty_r(GEOSContextHandle_t, const GEOSGeometry *);
+
 typedef void (*GEOSQueryCallback)(void *item, void *userdata);
 typedef int (*GEOSDistanceCallback)(const void *item1, const void *item2, double *distance,
                                     void *userdata);
@@ -153,6 +202,16 @@ typedef struct GeosShim {
 /* Interrupt callback (defined in the Phase 2 section below); installed by
  * geos_shim_init. */
 static int shim_interrupt_callback(void *userdata);
+
+/* One-polygon builder shared by geos_shim_build_polygon and the Phase 3
+ * polygonal bulk builder (defined below the batch builders). */
+static GEOSGeometry *build_one_polygon(GeosShim *shim, const double *xy,
+                                       const unsigned int *ringOffsets, unsigned int ringLo,
+                                       unsigned int ringHi, int hasZ, int hasM);
+
+/* Destroy out[0..count) — partial batch results — and null the slots
+ * (Phase 3 batch-loop discipline: all-or-nothing, D18). */
+static void destroy_partials(GeosShim *shim, GEOSGeometry **out, unsigned int count);
 
 /* GEOS_init_r + install handlers + the interrupt callback (D19). Returns
  * NULL only on malloc failure. */
@@ -264,24 +323,37 @@ GEOSGeometry *geos_shim_build_polygon(GeosShim *shim, const double *xy,
       return NULL;
     }
   }
+  return build_one_polygon(shim, xy, ringOffsets, 0, nrings, hasZ, hasM);
+}
 
-  /* Rings are handed to GEOS one by one: createLinearRing consumes the
-   * coordseq on success; the polygon consumes all rings on success. */
+/*
+ * Build ONE polygon from rings [ringLo, ringHi) of the shared coordinate
+ * buffer (ring r spans coordinates [ringOffsets[r-1], ringOffsets[r])).
+ * Caller validates the offsets. Returns NULL on failure having freed
+ * everything IT allocated; GEOS consumes accepted rings even when the final
+ * createPolygon fails (the createCollection-class quirk), so only the ring
+ * POINTER ARRAY is freed on that path.
+ */
+static GEOSGeometry *build_one_polygon(GeosShim *shim, const double *xy,
+                                       const unsigned int *ringOffsets, unsigned int ringLo,
+                                       unsigned int ringHi, int hasZ, int hasM) {
+  unsigned int nrings = ringHi - ringLo;
   GEOSGeometry **rings = (GEOSGeometry **)malloc(nrings * sizeof(GEOSGeometry *));
   if (!rings) {
     shim_set_error("build_polygon: out of memory");
     return NULL;
   }
   const int dim = 2 + (hasZ ? 1 : 0) + (hasM ? 1 : 0);
-  unsigned int start = 0;
-  for (unsigned int i = 0; i < nrings; i++) {
-    unsigned int count = ringOffsets[i] - start;
-    /* Offsets are in coordinate space; the buffer is interleaved, so ring i's
+  unsigned int start = ringLo == 0 ? 0 : ringOffsets[ringLo - 1];
+  for (unsigned int r = ringLo; r < ringHi; r++) {
+    unsigned int idx = r - ringLo;
+    unsigned int count = ringOffsets[r] - start;
+    /* Offsets are in coordinate space; the buffer is interleaved, so ring r's
      * data starts at double index start * dim. */
     GEOSCoordSequence *cs =
         GEOSCoordSeq_copyFromBuffer_r(shim->ctx, xy + (size_t)start * dim, count, hasZ, hasM);
     if (!cs) {
-      for (unsigned int j = 0; j < i; j++)
+      for (unsigned int j = 0; j < idx; j++)
         GEOSGeom_destroy_r(shim->ctx, rings[j]);
       free(rings);
       return NULL; /* GEOS message already captured */
@@ -290,13 +362,13 @@ GEOSGeometry *geos_shim_build_polygon(GeosShim *shim, const double *xy,
     if (!ring) {
       /* Same GEOS quirk as below: the coordseq moved into a unique_ptr
        * before the ring was constructed; on failure it is consumed. */
-      for (unsigned int j = 0; j < i; j++)
+      for (unsigned int j = 0; j < idx; j++)
         GEOSGeom_destroy_r(shim->ctx, rings[j]);
       free(rings);
       return NULL;
     }
-    rings[i] = ring;
-    start = ringOffsets[i];
+    rings[idx] = ring;
+    start = ringOffsets[r];
   }
 
   GEOSGeometry *shell = rings[0];
@@ -816,4 +888,625 @@ int geos_shim_strtree_nearest(GeosShim *shim, GEOSSTRtree *tree, const GEOSGeome
   if (!item)
     return t_has_error ? -2 : -1;
   return (int)(intptr_t)(uintptr_t)item - 1;
+}
+
+/* ================================================================= */
+/* ========= Phase 3: the batch op layer (D22, decisions.md) ======== */
+/* ================================================================= */
+
+/*
+ * Many-geometry overlay/predicate/measure loops executed in C — one FFI
+ * call per array (the literal Shapely-2.0 lesson). Every function here
+ * follows the D18 contract exactly:
+ *   - JS passes a pointer array + a preallocated output array;
+ *   - the loop checks the atomic interrupt flag between items;
+ *   - the FIRST GEOS exception aborts the whole call; partial outputs are
+ *     destroyed and the slots nulled (all-or-nothing — the JS side discards
+ *     the output array, but C must not leak);
+ *   - return codes 0 ok / 1 exception (message captured) / 2 interrupted.
+ * Op ids are small enum tables mirrored in src/types.ts and pinned by
+ * known-answer selftests (the PreparedPred discipline).
+ */
+
+/* Overlay op ids — must match OverlayOp in src/types.ts. */
+enum {
+  SHIM_OVERLAY_INTERSECTION = 0,
+  SHIM_OVERLAY_UNION,
+  SHIM_OVERLAY_DIFFERENCE,
+  SHIM_OVERLAY_SYMDIFFERENCE,
+  SHIM_OVERLAY_INTERSECTION_PREC,
+  SHIM_OVERLAY_UNION_PREC,
+  SHIM_OVERLAY_DIFFERENCE_PREC,
+  SHIM_OVERLAY_SYMDIFFERENCE_PREC
+};
+
+static GEOSGeometry *overlay_call(int opId, GEOSContextHandle_t ctx, const GEOSGeometry *a,
+                                  const GEOSGeometry *b, double grid) {
+  switch (opId) {
+  case SHIM_OVERLAY_INTERSECTION:
+    return GEOSIntersection_r(ctx, a, b);
+  case SHIM_OVERLAY_UNION:
+    return GEOSUnion_r(ctx, a, b);
+  case SHIM_OVERLAY_DIFFERENCE:
+    return GEOSDifference_r(ctx, a, b);
+  case SHIM_OVERLAY_SYMDIFFERENCE:
+    return GEOSSymDifference_r(ctx, a, b);
+  case SHIM_OVERLAY_INTERSECTION_PREC:
+    return GEOSIntersectionPrec_r(ctx, a, b, grid);
+  case SHIM_OVERLAY_UNION_PREC:
+    return GEOSUnionPrec_r(ctx, a, b, grid);
+  case SHIM_OVERLAY_DIFFERENCE_PREC:
+    return GEOSDifferencePrec_r(ctx, a, b, grid);
+  case SHIM_OVERLAY_SYMDIFFERENCE_PREC:
+    return GEOSSymDifferencePrec_r(ctx, a, b, grid);
+  default:
+    shim_set_error("overlay_all: unknown op id %d", opId);
+    return NULL;
+  }
+}
+
+/*
+ * Element-wise overlay of `a` with each of n geometries: out[i] = op(a, gs[i]).
+ * `grid` is the fixed-precision grid size for the *_PREC op ids (ignored by
+ * the plain ids). `a` and `gs` are borrowed — never consumed, never freed.
+ * Outputs are NEW owned geometries; on any failure every output produced so
+ * far is destroyed before returning.
+ */
+int geos_shim_overlay_all(GeosShim *shim, int opId, const GEOSGeometry *a, GEOSGeometry **gs,
+                          unsigned int n, double grid, GEOSGeometry **out) {
+  if (!shim || (!a && n > 0) || (!gs && n > 0) || (!out && n > 0)) {
+    shim_set_error("overlay_all: invalid arguments (shim=%p a=%p gs=%p out=%p n=%u)", (void *)shim,
+                   (const void *)a, (void *)gs, (void *)out, n);
+    return 1;
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("overlay_all: interrupted by request");
+      destroy_partials(shim, out, i);
+      return 2;
+    }
+    if (!gs[i]) {
+      shim_set_error("overlay_all: NULL geometry at index %u", i);
+      destroy_partials(shim, out, i);
+      return 1;
+    }
+    out[i] = overlay_call(opId, shim->ctx, a, gs[i], grid);
+    if (!out[i]) {
+      destroy_partials(shim, out, i); /* GEOS message already captured */
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* Unprepared predicate ids — must match UnpreparedPred in src/types.ts.
+ * (Prepared batch masks keep their own table; the numbering here is pinned
+ * by the selftest independently.) */
+enum {
+  SHIM_PRED_INTERSECTS = 0,
+  SHIM_PRED_CONTAINS,
+  SHIM_PRED_COVERED_BY,
+  SHIM_PRED_COVERS,
+  SHIM_PRED_CROSSES,
+  SHIM_PRED_DISJOINT,
+  SHIM_PRED_OVERLAPS,
+  SHIM_PRED_TOUCHES,
+  SHIM_PRED_WITHIN
+};
+
+static char unprep_call(int predId, GEOSContextHandle_t ctx, const GEOSGeometry *a,
+                        const GEOSGeometry *b) {
+  switch (predId) {
+  case SHIM_PRED_INTERSECTS:
+    return GEOSIntersects_r(ctx, a, b);
+  case SHIM_PRED_CONTAINS:
+    return GEOSContains_r(ctx, a, b);
+  case SHIM_PRED_COVERED_BY:
+    return GEOSCoveredBy_r(ctx, a, b);
+  case SHIM_PRED_COVERS:
+    return GEOSCovers_r(ctx, a, b);
+  case SHIM_PRED_CROSSES:
+    return GEOSCrosses_r(ctx, a, b);
+  case SHIM_PRED_DISJOINT:
+    return GEOSDisjoint_r(ctx, a, b);
+  case SHIM_PRED_OVERLAPS:
+    return GEOSOverlaps_r(ctx, a, b);
+  case SHIM_PRED_TOUCHES:
+    return GEOSTouches_r(ctx, a, b);
+  case SHIM_PRED_WITHIN:
+    return GEOSWithin_r(ctx, a, b);
+  default:
+    shim_set_error("pred_all: unknown predicate id %d", predId);
+    return 2;
+  }
+}
+
+/*
+ * Unprepared batch masks — the free-function mirror of Prepared.*All (D18):
+ * out[i] = pred(a, gs[i]) as 0/1. Same all-or-nothing contract.
+ */
+int geos_shim_pred_all(GeosShim *shim, int predId, const GEOSGeometry *a, GEOSGeometry **gs,
+                       unsigned int n, uint8_t *out) {
+  if (!shim || !a || (!gs && n > 0) || (!out && n > 0)) {
+    shim_set_error("pred_all: invalid arguments (shim=%p a=%p gs=%p out=%p n=%u)", (void *)shim,
+                   (const void *)a, (void *)gs, (void *)out, n);
+    return 1;
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("pred_all: interrupted by request");
+      return 2;
+    }
+    if (!gs[i]) {
+      shim_set_error("pred_all: NULL geometry at index %u", i);
+      return 1;
+    }
+    char r = unprep_call(predId, shim->ctx, a, gs[i]) & 0xff;
+    if (r == 2)
+      return 1; /* GEOS message already captured */
+    out[i] = (uint8_t)(r == 1);
+  }
+  return 0;
+}
+
+/* Measure op ids — must match MeasureOp in src/types.ts. */
+enum {
+  SHIM_MEASURE_AREA = 0,
+  SHIM_MEASURE_LENGTH,
+  SHIM_MEASURE_DISTANCE,
+  SHIM_MEASURE_HAUSDORFF,
+  SHIM_MEASURE_FRECHET
+};
+
+/*
+ * Batch measures: area/length of each geometry (unary — `a` must be NULL),
+ * or distance/hausdorff/frechet from `a` to each geometry (binary). First
+ * failure aborts; out[i] entries before the failure are stale-but-discarded
+ * (numbers, nothing to free).
+ */
+int geos_shim_measure_all(GeosShim *shim, int opId, const GEOSGeometry *a, GEOSGeometry **gs,
+                          unsigned int n, double *out) {
+  if (!shim || (!gs && n > 0) || (!out && n > 0)) {
+    shim_set_error("measure_all: invalid arguments (shim=%p a=%p gs=%p out=%p n=%u)", (void *)shim,
+                   (const void *)a, (void *)gs, (void *)out, n);
+    return 1;
+  }
+  int unary = opId == SHIM_MEASURE_AREA || opId == SHIM_MEASURE_LENGTH;
+  if (unary && a != NULL) {
+    shim_set_error("measure_all: op %d takes no reference geometry", opId);
+    return 1;
+  }
+  if (!unary && a == NULL) {
+    shim_set_error("measure_all: op %d needs a reference geometry", opId);
+    return 1;
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("measure_all: interrupted by request");
+      return 2;
+    }
+    if (!gs[i]) {
+      shim_set_error("measure_all: NULL geometry at index %u", i);
+      return 1;
+    }
+    double d = 0.0;
+    int ok;
+    switch (opId) {
+    case SHIM_MEASURE_AREA:
+      ok = GEOSArea_r(shim->ctx, gs[i], &d);
+      break;
+    case SHIM_MEASURE_LENGTH:
+      ok = GEOSLength_r(shim->ctx, gs[i], &d);
+      break;
+    case SHIM_MEASURE_DISTANCE:
+      ok = GEOSDistance_r(shim->ctx, a, gs[i], &d);
+      break;
+    case SHIM_MEASURE_HAUSDORFF:
+      ok = GEOSHausdorffDistance_r(shim->ctx, a, gs[i], &d);
+      break;
+    case SHIM_MEASURE_FRECHET:
+      ok = GEOSFrechetDistance_r(shim->ctx, a, gs[i], &d);
+      break;
+    default:
+      shim_set_error("measure_all: unknown op id %d", opId);
+      return 1;
+    }
+    if (!ok)
+      return 1; /* GEOS message already captured */
+    out[i] = d;
+  }
+  return 0;
+}
+
+/*
+ * Batch buffer with caller-provided params (created/destroyed by the TS
+ * side — pooling stays per-Geos, memory.md §2). Outputs are new owned
+ * geometries; all-or-nothing.
+ */
+int geos_shim_buffer_all(GeosShim *shim, const GEOSBufferParams *params, double dist,
+                         GEOSGeometry **gs, unsigned int n, GEOSGeometry **out) {
+  if (!shim || !params || (!gs && n > 0) || (!out && n > 0)) {
+    shim_set_error("buffer_all: invalid arguments (shim=%p params=%p gs=%p out=%p n=%u)",
+                   (void *)shim, (const void *)params, (void *)gs, (void *)out, n);
+    return 1;
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("buffer_all: interrupted by request");
+      destroy_partials(shim, out, i);
+      return 2;
+    }
+    if (!gs[i]) {
+      shim_set_error("buffer_all: NULL geometry at index %u", i);
+      destroy_partials(shim, out, i);
+      return 1;
+    }
+    out[i] = GEOSBufferWithParams_r(shim->ctx, gs[i], params, dist);
+    if (!out[i]) {
+      destroy_partials(shim, out, i); /* GEOS message already captured */
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/*
+ * Batch WKB read (shim.md §2 sketch; io.md §4): n geometries from one
+ * buffer, geometry i spanning bytes [byteOffsets[i-1], byteOffsets[i]) —
+ * end-indices, element counts in BYTES (the one offset family measured in
+ * bytes; everything else in this shim counts elements). The reader is the
+ * TS-pooled per-Geos reader. Outputs are new owned geometries;
+ * all-or-nothing. u32 offsets cap one buffer at 4 GB — documented.
+ */
+int geos_shim_read_wkb_many(GeosShim *shim, GEOSWKBReader *reader, const unsigned char *buf,
+                            const unsigned int *byteOffsets, unsigned int n, GEOSGeometry **out) {
+  if (!shim || !reader || !buf || (!byteOffsets && n > 0) || (!out && n > 0)) {
+    shim_set_error("read_wkb_many: invalid arguments (shim=%p reader=%p buf=%p offsets=%p out=%p "
+                   "n=%u)",
+                   (void *)shim, (void *)reader, (const void *)buf, (const void *)byteOffsets,
+                   (void *)out, n);
+    return 1;
+  }
+  size_t start = 0;
+  for (unsigned int i = 0; i < n; i++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("read_wkb_many: interrupted by request");
+      destroy_partials(shim, out, i);
+      return 2;
+    }
+    size_t end = byteOffsets[i];
+    if (end < start) {
+      shim_set_error("read_wkb_many: byteOffsets not increasing at %u (%zu < %zu)", i, end, start);
+      destroy_partials(shim, out, i);
+      return 1;
+    }
+    out[i] = GEOSWKBReader_read_r(shim->ctx, reader, buf + start, end - start);
+    if (!out[i]) {
+      destroy_partials(shim, out, i); /* GEOS message already captured */
+      return 1;
+    }
+    start = end;
+  }
+  return 0;
+}
+
+/*
+ * Total vertex count for ANY geometry type (the chunk weights for
+ * geos.parallel, D23) in one crossing — never N per-item JS crossings.
+ * GEOSGeomGetNumPoints_r is linestring-only, so polygons sum their rings
+ * and collections recurse over parts (borrowed pointers — nothing freed).
+ */
+static int vertex_count(GEOSContextHandle_t ctx, const GEOSGeometry *g, int depth) {
+  if (depth > 32)
+    return -1; /* pathological nesting guard */
+  int typeId = GEOSGeomTypeId_r(ctx, g);
+  if (typeId < 0)
+    return -1;
+  if (typeId == 3) { /* POLYGON: shell + holes */
+    int total = 0;
+    const GEOSGeometry *shell = GEOSGetExteriorRing_r(ctx, g);
+    if (!shell)
+      return -1;
+    int pts = GEOSGeomGetNumPoints_r(ctx, shell);
+    if (pts < 0)
+      return -1;
+    total += pts;
+    int nholes = GEOSGetNumInteriorRings_r(ctx, g);
+    if (nholes < 0)
+      return -1;
+    for (int h = 0; h < nholes; h++) {
+      const GEOSGeometry *hole = GEOSGetInteriorRingN_r(ctx, g, h);
+      if (!hole)
+        return -1;
+      pts = GEOSGeomGetNumPoints_r(ctx, hole);
+      if (pts < 0)
+        return -1;
+      total += pts;
+    }
+    return total;
+  }
+  if (typeId == 0) { /* POINT: GEOSGeomGetNumPoints_r throws on points in
+                       * 3.14 (SimpleCurve dynamic_cast) — a point is 1
+                       * vertex, 0 when empty. */
+    return GEOSisEmpty_r(ctx, g) == 1 ? 0 : 1;
+  }
+  if (typeId >= 4) { /* MULTI* / GEOMETRYCOLLECTION: recurse */
+    int n = GEOSGetNumGeometries_r(ctx, g);
+    if (n < 0)
+      return -1;
+    int total = 0;
+    for (int i = 0; i < n; i++) {
+      const GEOSGeometry *part = GEOSGetGeometryN_r(ctx, g, i);
+      if (!part)
+        return -1;
+      int pts = vertex_count(ctx, part, depth + 1);
+      if (pts < 0)
+        return -1;
+      total += pts;
+    }
+    return total;
+  }
+  return GEOSGeomGetNumPoints_r(ctx, g); /* linestring / linearring */
+}
+
+int geos_shim_num_points_many(GeosShim *shim, GEOSGeometry **gs, unsigned int n, uint32_t *out) {
+  if (!shim || (!gs && n > 0) || (!out && n > 0)) {
+    shim_set_error("num_points_many: invalid arguments (shim=%p gs=%p out=%p n=%u)", (void *)shim,
+                   (void *)gs, (void *)out, n);
+    return 1;
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    if (!gs[i]) {
+      shim_set_error("num_points_many: NULL geometry at index %u", i);
+      return 1;
+    }
+    int c = vertex_count(shim->ctx, gs[i], 0);
+    if (c < 0)
+      return 1; /* GEOS message already captured */
+    out[i] = (uint32_t)c;
+  }
+  return 0;
+}
+
+/*
+ * Data-derived heap estimate over the live pointer set (D24): per geometry
+ * 64 bytes overhead + NumPoints × coordinateDimension × 8. M ordinates are
+ * not separately detectable per-geometry on the C API — documented as an
+ * approximation, never a quota. Read-only: no interrupt checks (accounting
+ * must complete once started; it is called outside op loops).
+ */
+int geos_shim_heap_bytes(GeosShim *shim, GEOSGeometry **gs, unsigned int n, int64_t *outBytes) {
+  if (!shim || (!gs && n > 0) || !outBytes) {
+    shim_set_error("heap_bytes: invalid arguments (shim=%p gs=%p out=%p n=%u)", (void *)shim,
+                   (void *)gs, (void *)outBytes, n);
+    return 1;
+  }
+  int64_t total = 0;
+  for (unsigned int i = 0; i < n; i++) {
+    if (!gs[i]) {
+      shim_set_error("heap_bytes: NULL geometry at index %u", i);
+      return 1;
+    }
+    int pts = vertex_count(shim->ctx, gs[i], 0);
+    if (pts < 0)
+      return 1;
+    int dim = GEOSGeom_getCoordinateDimension_r(shim->ctx, gs[i]);
+    if (dim < 2)
+      return 1;
+    total += 64 + (int64_t)pts * dim * 8;
+  }
+  *outBytes = total;
+  return 0;
+}
+
+/* destroy_partials — defined here (forward-declared at the top for the
+ * Phase 3 loops above). */
+static void destroy_partials(GeosShim *shim, GEOSGeometry **out, unsigned int count) {
+  for (unsigned int j = 0; j < count; j++) {
+    if (out[j])
+      GEOSGeom_destroy_r(shim->ctx, out[j]);
+    out[j] = NULL;
+  }
+}
+
+/* ========= Phase 3: bulk Arrow-shaped builders (D9/D22) ========= */
+
+/*
+ * Build n polygons from ONE concatenated coordinate buffer in one crossing
+ * — the one-crossing normalization for Polygonal/GeoArrow batch input
+ * (api-surface Phase-2 note: "ArrowArray normalization lands with the
+ * Phase 3 batch layer"). Polygon j spans rings [partOffsets[j-1],
+ * partOffsets[j]); rings are end-indices into coordinate space, exactly as
+ * geos_shim_build_polygon takes them. Outputs are new owned geometries;
+ * all-or-nothing (completed polygons destroyed on any failure).
+ */
+int geos_shim_build_polygonal_many(GeosShim *shim, const double *xy, const unsigned int *ringOffsets,
+                                   unsigned int nrings, const unsigned int *partOffsets,
+                                   unsigned int npolys, int hasZ, int hasM, GEOSGeometry **out) {
+  if (!shim || !xy || !ringOffsets || !partOffsets || npolys == 0 || nrings == 0 ||
+      (!out && npolys > 0)) {
+    shim_set_error("build_polygonal_many: invalid arguments (shim=%p xy=%p rings=%p parts=%p "
+                   "out=%p nrings=%u npolys=%u)",
+                   (void *)shim, (const void *)xy, (const void *)ringOffsets,
+                   (const void *)partOffsets, (void *)out, nrings, npolys);
+    return 1;
+  }
+  if (ringOffsets[0] == 0) {
+    shim_set_error("build_polygonal_many: ringOffsets[0] must be > 0 (got 0)");
+    return 1;
+  }
+  for (unsigned int r = 1; r < nrings; r++) {
+    if (ringOffsets[r] <= ringOffsets[r - 1]) {
+      shim_set_error("build_polygonal_many: ringOffsets not strictly increasing at %u", r);
+      return 1;
+    }
+  }
+  if (partOffsets[0] == 0 || partOffsets[npolys - 1] != nrings) {
+    shim_set_error("build_polygonal_many: partOffsets must start > 0 and end at nrings (%u != %u)",
+                   partOffsets[npolys - 1], nrings);
+    return 1;
+  }
+  for (unsigned int p = 1; p < npolys; p++) {
+    if (partOffsets[p] <= partOffsets[p - 1]) {
+      shim_set_error("build_polygonal_many: partOffsets not strictly increasing at %u", p);
+      return 1;
+    }
+  }
+  unsigned int ringLo = 0;
+  for (unsigned int j = 0; j < npolys; j++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("build_polygonal_many: interrupted by request");
+      destroy_partials(shim, out, j);
+      return 2;
+    }
+    unsigned int ringHi = partOffsets[j];
+    out[j] = build_one_polygon(shim, xy, ringOffsets, ringLo, ringHi, hasZ, hasM);
+    if (!out[j]) {
+      destroy_partials(shim, out, j); /* GEOS message already captured */
+      return 1;
+    }
+    ringLo = ringHi;
+  }
+  return 0;
+}
+
+/*
+ * Build n linestrings from one concatenated coordinate buffer in one
+ * crossing (the LineArray/GeoArrow batch normalization). Line i spans
+ * coordinates [lineOffsets[i-1], lineOffsets[i]); end-indices, strictly
+ * increasing, each line needs ≥ 2 coordinates. All-or-nothing.
+ */
+int geos_shim_build_linestrings_many(GeosShim *shim, const double *xy,
+                                     const unsigned int *lineOffsets, unsigned int nlines, int hasZ,
+                                     int hasM, GEOSGeometry **out) {
+  if (!shim || !xy || !lineOffsets || nlines == 0 || (!out && nlines > 0)) {
+    shim_set_error("build_linestrings_many: invalid arguments (shim=%p xy=%p offsets=%p out=%p "
+                   "nlines=%u)",
+                   (void *)shim, (const void *)xy, (const void *)lineOffsets, (void *)out, nlines);
+    return 1;
+  }
+  if (lineOffsets[0] == 0) {
+    shim_set_error("build_linestrings_many: lineOffsets[0] must be > 0 (got 0)");
+    return 1;
+  }
+  for (unsigned int l = 1; l < nlines; l++) {
+    if (lineOffsets[l] <= lineOffsets[l - 1]) {
+      shim_set_error("build_linestrings_many: lineOffsets not strictly increasing at %u", l);
+      return 1;
+    }
+  }
+  const int dim = 2 + (hasZ ? 1 : 0) + (hasM ? 1 : 0);
+  unsigned int start = 0;
+  for (unsigned int i = 0; i < nlines; i++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("build_linestrings_many: interrupted by request");
+      destroy_partials(shim, out, i);
+      return 2;
+    }
+    unsigned int count = lineOffsets[i] - start;
+    if (count < 2) {
+      shim_set_error("build_linestrings_many: line %u has %u coordinates; need ≥ 2", i, count);
+      destroy_partials(shim, out, i);
+      return 1;
+    }
+    GEOSCoordSequence *cs =
+        GEOSCoordSeq_copyFromBuffer_r(shim->ctx, xy + (size_t)start * dim, count, hasZ, hasM);
+    if (!cs) {
+      destroy_partials(shim, out, i);
+      return 1; /* GEOS message already captured */
+    }
+    GEOSGeometry *g = GEOSGeom_createLineString_r(shim->ctx, cs);
+    if (!g) {
+      /* coordseq consumed even on failure (the createLineString quirk). */
+      destroy_partials(shim, out, i);
+      return 1;
+    }
+    out[i] = g;
+    start = lineOffsets[i];
+  }
+  return 0;
+}
+
+/* ========= Phase 3: fused spatial-index filter (api-surface §Spatial
+ * index — query + prepared predicate in one crossing) ========= */
+
+typedef struct {
+  const GEOSGeometry *g;
+  int32_t id;
+} FusedCand;
+
+typedef struct {
+  GEOSContextHandle_t ctx;
+  GEOSGeometry **table;
+  FusedCand *cand;
+  unsigned int count;
+  unsigned int cap;
+  int failed;
+} FusedCtx;
+
+/* Query callback (C-to-C, D4): decode the 1-based item to (id, geometry)
+ * via the bound table and append to the growing candidate array. */
+static void shim_fused_query_cb(void *item, void *userdata) {
+  FusedCtx *f = (FusedCtx *)userdata;
+  if (f->failed)
+    return;
+  if (f->count == f->cap) {
+    unsigned int ncap = f->cap ? f->cap * 2 : 64;
+    FusedCand *nc = (FusedCand *)realloc(f->cand, ncap * sizeof(FusedCand));
+    if (!nc) {
+      f->failed = 1;
+      return;
+    }
+    f->cand = nc;
+    f->cap = ncap;
+  }
+  int32_t id = (int32_t)(intptr_t)(uintptr_t)item - 1;
+  f->cand[f->count].g = f->table[id];
+  f->cand[f->count].id = id;
+  f->count++;
+}
+
+/*
+ * Fused filter: STRtree query (envelope candidates, C-collected) + prepared
+ * predicate + compaction, ONE crossing. Writes up to maxOut MATCHING ids;
+ * returns the TOTAL match count (re-call with a right-sized buffer when it
+ * exceeds maxOut — the geos_shim_strtree_query contract), -1 on invalid
+ * arguments / GEOS exception / OOM, -2 interrupted.
+ */
+int geos_shim_strtree_query_prepared(GeosShim *shim, GEOSSTRtree *tree, const GEOSGeometry *query,
+                                     const GEOSPreparedGeometry *pg, int predId,
+                                     GEOSGeometry **table, int32_t *out, unsigned int maxOut) {
+  if (!shim || !tree || !query || !pg || !table || (!out && maxOut > 0)) {
+    shim_set_error("strtree_query_prepared: invalid arguments (shim=%p tree=%p query=%p pg=%p "
+                   "table=%p out=%p)",
+                   (void *)shim, (void *)tree, (const void *)query, (const void *)pg,
+                   (void *)table, (void *)out);
+    return -1;
+  }
+  FusedCtx f = {shim->ctx, table, NULL, 0, 0, 0};
+  GEOSSTRtree_query_r(shim->ctx, tree, query, shim_fused_query_cb, &f);
+  if (f.failed) {
+    free(f.cand);
+    shim_set_error("strtree_query_prepared: out of memory");
+    return -1;
+  }
+  int total = 0;
+  for (unsigned int i = 0; i < f.count; i++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("strtree_query_prepared: interrupted by request");
+      free(f.cand);
+      return -2;
+    }
+    char r = prep_call(predId, shim->ctx, pg, f.cand[i].g) & 0xff;
+    if (r == 2) {
+      free(f.cand);
+      return -1; /* GEOS message already captured */
+    }
+    if (r == 1 && total < (int)maxOut)
+      out[total] = f.cand[i].id;
+    if (r == 1)
+      total++;
+  }
+  free(f.cand);
+  return total;
 }

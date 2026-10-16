@@ -192,3 +192,50 @@ export type PreparedPred = (typeof PreparedPred)[keyof typeof PreparedPred];
 /** `geos_shim_union_all` strategy ids — MUST match `SHIM_UNION_*` in the shim. */
 export const UnionStrategy = { auto: 0, coverage: 1, disjointSubset: 2, unary: 3 } as const;
 export type UnionStrategy = (typeof UnionStrategy)[keyof typeof UnionStrategy];
+
+/* ===================== Phase 3 (ROADMAP: performance & scale) ===================== */
+
+/**
+ * `geos_shim_overlay_all` op ids — MUST match `SHIM_OVERLAY_*` in the shim
+ * (native/shim.c). The `*Prec` ids take the grid size; plain ids ignore it.
+ * Pinned by known-answer selftests (the PreparedPred discipline).
+ */
+export const OverlayOp = {
+  intersection: 0,
+  union: 1,
+  difference: 2,
+  symDifference: 3,
+  intersectionPrec: 4,
+  unionPrec: 5,
+  differencePrec: 6,
+  symDifferencePrec: 7,
+} as const;
+export type OverlayOp = (typeof OverlayOp)[keyof typeof OverlayOp];
+
+/**
+ * `geos_shim_pred_all` (unprepared batch masks) ids — MUST match
+ * `SHIM_PRED_*` in the shim. Numbering is independent of `PreparedPred`
+ * (no containsProperly unprepared); pinned by its own known-answer table.
+ */
+export const UnpreparedPred = {
+  intersects: 0,
+  contains: 1,
+  coveredBy: 2,
+  covers: 3,
+  crosses: 4,
+  disjoint: 5,
+  overlaps: 6,
+  touches: 7,
+  within: 8,
+} as const;
+export type UnpreparedPred = (typeof UnpreparedPred)[keyof typeof UnpreparedPred];
+
+/** `geos_shim_measure_all` op ids — MUST match `SHIM_MEASURE_*` in the shim. */
+export const MeasureOp = {
+  area: 0,
+  length: 1,
+  distance: 2,
+  hausdorff: 3,
+  frechet: 4,
+} as const;
+export type MeasureOp = (typeof MeasureOp)[keyof typeof MeasureOp];

@@ -60,6 +60,32 @@ const SHIM_TABLE = {
   geos_shim_strtree_bind_geoms: { args: ["ptr", "ptr", "u32"], returns: "ptr" },
   geos_shim_strtree_table_free: { args: ["ptr"], returns: "void" },
   geos_shim_strtree_nearest: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },
+
+  // Phase 3 (D22/D24): the batch op layer — one FFI call per array — plus
+  // bulk Arrow builders, fused tree filter, chunk weights, heap accounting.
+  // All `*_all` returns: 0 ok / 1 exception / 2 interrupted (D18 contract).
+  geos_shim_overlay_all: {
+    args: ["ptr", "i32", "ptr", "ptr", "u32", "f64", "ptr"],
+    returns: "i32",
+  },
+  geos_shim_pred_all: { args: ["ptr", "i32", "ptr", "ptr", "u32", "ptr"], returns: "i32" },
+  geos_shim_measure_all: { args: ["ptr", "i32", "ptr", "ptr", "u32", "ptr"], returns: "i32" },
+  geos_shim_buffer_all: { args: ["ptr", "ptr", "f64", "ptr", "u32", "ptr"], returns: "i32" },
+  geos_shim_read_wkb_many: { args: ["ptr", "ptr", "ptr", "ptr", "u32", "ptr"], returns: "i32" },
+  geos_shim_num_points_many: { args: ["ptr", "ptr", "u32", "ptr"], returns: "i32" },
+  geos_shim_heap_bytes: { args: ["ptr", "ptr", "u32", "ptr"], returns: "i32" },
+  geos_shim_build_polygonal_many: {
+    args: ["ptr", "ptr", "ptr", "u32", "ptr", "u32", "i32", "i32", "ptr"],
+    returns: "i32",
+  },
+  geos_shim_build_linestrings_many: {
+    args: ["ptr", "ptr", "ptr", "u32", "i32", "i32", "ptr"],
+    returns: "i32",
+  },
+  geos_shim_strtree_query_prepared: {
+    args: ["ptr", "ptr", "ptr", "ptr", "i32", "ptr", "ptr", "u32"],
+    returns: "i32",
+  },
 } as const satisfies Record<string, FFISpec>;
 
 /**

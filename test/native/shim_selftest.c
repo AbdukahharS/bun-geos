@@ -47,6 +47,43 @@ extern void *GEOSPrepare_r(void *, const void *);
 extern void GEOSPreparedGeom_destroy_r(void *, const void *);
 extern void GEOSGeom_destroy_r(void *, void *);
 extern int GEOSDistance_r(void *, const void *, const void *, double *);
+extern int GEOSArea_r(void *, const void *, double *);
+extern int GEOSGeomGetNumPoints_r(void *, const void *);
+extern void *GEOSWKBReader_create_r(void *);
+extern void GEOSWKBReader_destroy_r(void *, void *);
+extern void *GEOSBufferParams_create_r(void *);
+extern void GEOSBufferParams_destroy_r(void *, void *);
+extern void *GEOSCoordSeq_copyFromBuffer_r(void *, const double *, unsigned int, int, int);
+extern void *GEOSGeom_createPoint_r(void *, void *);
+
+/* Real POINT fixtures — 1-vertex LineStrings are constructible but GEOS
+ * throws on distance/intersects/buffer with them; batch fixtures below use
+ * proper points where point semantics matter. */
+static void *mk_point(GeosShim *s, void *c, double x, double y) {
+  double xy[2] = {x, y};
+  void *cs = GEOSCoordSeq_copyFromBuffer_r(c, xy, 1, 0, 0);
+  if (!cs)
+    return NULL;
+  return GEOSGeom_createPoint_r(c, cs); /* consumes cs even on failure */
+}
+
+/* Phase 3 surface */
+extern int geos_shim_overlay_all(GeosShim *, int, const void *, void **, unsigned int, double,
+                                 void **);
+extern int geos_shim_pred_all(GeosShim *, int, const void *, void **, unsigned int, unsigned char *);
+extern int geos_shim_measure_all(GeosShim *, int, const void *, void **, unsigned int, double *);
+extern int geos_shim_buffer_all(GeosShim *, const void *, double, void **, unsigned int, void **);
+extern int geos_shim_read_wkb_many(GeosShim *, void *, const unsigned char *, const unsigned int *,
+                                   unsigned int, void **);
+extern int geos_shim_num_points_many(GeosShim *, void **, unsigned int, uint32_t *);
+extern int geos_shim_heap_bytes(GeosShim *, void **, unsigned int, int64_t *);
+extern int geos_shim_build_polygonal_many(GeosShim *, const double *, const unsigned int *,
+                                          unsigned int, const unsigned int *, unsigned int, int, int,
+                                          void **);
+extern int geos_shim_build_linestrings_many(GeosShim *, const double *, const unsigned int *,
+                                            unsigned int, int, int, void **);
+extern int geos_shim_strtree_query_prepared(GeosShim *, void *, const void *, const void *, int,
+                                            void **, int32_t *, unsigned int);
 
 static int failures = 0;
 
@@ -339,6 +376,331 @@ int main(void) {
     GEOSGeom_destroy_r(ctx, query);
     geos_shim_destroy_many(s, items, 50);
     GEOSSTRtree_destroy_r(ctx, tree);
+  }
+
+  /* ============================================================= */
+  /* ============ Phase 3 scenarios: the batch op layer =========== */
+  /* ============================================================= */
+
+  /* 20. overlay_all INTERSECTION known answers: big square vs 4 unit
+   * squares on the diagonal → each result area is exactly 1. */
+  {
+    void *bigSq = geos_shim_build_polygon(
+        s, (double[10]){0, 0, 10, 0, 10, 10, 0, 10, 0, 0}, (unsigned int[1]){5}, 1, 0, 0);
+    CHECK(bigSq != NULL, "overlay fixture big square");
+    void *units[4];
+    for (int i = 0; i < 4; i++) {
+      double x = i + 1;
+      units[i] = geos_shim_build_polygon(
+          s,
+          (double[10]){x, x, x + 1, x, x + 1, x + 1, x, x + 1, x, x},
+          (unsigned int[1]){5}, 1, 0, 0);
+      CHECK(units[i] != NULL, "overlay fixture unit square");
+    }
+    void *outs[4] = {0};
+    int r = geos_shim_overlay_all(s, 0 /* INTERSECTION */, bigSq, units, 4, 0.0, outs);
+    CHECK(r == 0, "overlay_all intersection succeeds");
+    int areasOk = 1;
+    for (int i = 0; i < 4; i++) {
+      double a = -1;
+      if (!outs[i] || GEOSArea_r(ctx, outs[i], &a) != 1 || a < 0.999 || a > 1.001)
+        areasOk = 0;
+    }
+    CHECK(areasOk, "overlay_all intersection areas are 1.0");
+    geos_shim_destroy_many(s, outs, 4);
+    /* unknown op id → exception */
+    CHECK(geos_shim_overlay_all(s, 99, bigSq, units, 4, 0.0, outs) == 1 && has_error(s),
+          "overlay_all unknown op id is an exception");
+    geos_shim_last_error(s);
+    /* NULL input at index 2 → exception, partials destroyed (LSan verifies) */
+    void *nullish[4] = {units[0], units[1], NULL, units[3]};
+    CHECK(geos_shim_overlay_all(s, 0, bigSq, nullish, 4, 0.0, outs) == 1 && has_error(s),
+          "overlay_all NULL input aborts all-or-nothing");
+    geos_shim_last_error(s);
+    /* UNION_PREC of two disjoint squares with grid 1 → exact union 2.0 */
+    void *d0 = geos_shim_build_polygon(
+        s, (double[10]){0, 0, 1, 0, 1, 1, 0, 1, 0, 0}, (unsigned int[1]){5}, 1, 0, 0);
+    void *d1 = geos_shim_build_polygon(
+        s, (double[10]){2, 2, 3, 2, 3, 3, 2, 3, 2, 2}, (unsigned int[1]){5}, 1, 0, 0);
+    void *two[2] = {d0, d1};
+    void *uouts[2] = {0};
+    CHECK(geos_shim_overlay_all(s, 5 /* UNION_PREC */, d0, two, 2, 1.0, uouts) == 0,
+          "overlay_all unionPrec succeeds");
+    double ua = -1;
+    CHECK(uouts[1] && GEOSArea_r(ctx, uouts[1], &ua) == 1 && ua > 1.999 && ua < 2.001,
+          "unionPrec area is exactly 2.0");
+    geos_shim_destroy_many(s, uouts, 2);
+    geos_shim_destroy_many(s, (void *[]){d0, d1}, 2);
+    geos_shim_destroy_many(s, (void *[]){bigSq, units[0], units[1], units[2], units[3]}, 5);
+  }
+
+  /* 21. pred_all: unprepared batch masks with known answers. */
+  {
+    void *sq = geos_shim_build_polygon(
+        s, (double[10]){0, 0, 4, 0, 4, 4, 0, 4, 0, 0}, (unsigned int[1]){5}, 1, 0, 0);
+    /* points: inside, on-boundary, outside */
+    void *pts[3];
+    pts[0] = mk_point(s, ctx, 2, 2);
+    pts[1] = mk_point(s, ctx, 0, 2);
+    pts[2] = mk_point(s, ctx, 9, 9);
+    unsigned char mask[3] = {9, 9, 9};
+    CHECK(geos_shim_pred_all(s, 0 /* INTERSECTS */, sq, pts, 3, mask) == 0,
+          "pred_all intersects succeeds");
+    CHECK(mask[0] == 1 && mask[1] == 1 && mask[2] == 0, "pred_all known-answer mask (in/in/out)");
+    unsigned char mask2[3] = {9, 9, 9};
+    CHECK(geos_shim_pred_all(s, 8 /* WITHIN */, pts[2], pts, 3, mask2) == 0,
+          "pred_all within succeeds");
+    CHECK(mask2[2] == 1 && mask2[0] == 0, "pred_all within known answer");
+    CHECK(geos_shim_pred_all(s, 42, sq, pts, 3, mask) == 1 && has_error(s),
+          "pred_all unknown predicate id is an exception");
+    geos_shim_last_error(s);
+    geos_shim_destroy_many(s, (void *[]){sq, pts[0], pts[1], pts[2]}, 4);
+  }
+
+  /* 22. measure_all: batch areas/lengths/distances + argument shape rules. */
+  {
+    void *sqs[3];
+    for (int i = 0; i < 3; i++) {
+      double side = i + 1;
+      double x = 10.0 * i;
+      sqs[i] = geos_shim_build_polygon(
+          s,
+          (double[10]){x, 0, x + side, 0, x + side, side, x, side, x, 0},
+          (unsigned int[1]){5}, 1, 0, 0);
+      CHECK(sqs[i] != NULL, "measure fixture square");
+    }
+    double vals[3] = {0};
+    CHECK(geos_shim_measure_all(s, 0 /* AREA */, NULL, sqs, 3, vals) == 0, "measure_all area");
+    CHECK(vals[0] == 1.0 && vals[1] == 4.0 && vals[2] == 9.0, "measure_all areas exact");
+    CHECK(geos_shim_measure_all(s, 1 /* LENGTH */, NULL, sqs, 3, vals) == 0, "measure_all length");
+    CHECK(vals[0] == 4.0 && vals[1] == 8.0 && vals[2] == 12.0, "measure_all lengths exact");
+    void *probe = mk_point(s, ctx, -5, 0);
+    CHECK(geos_shim_measure_all(s, 2 /* DISTANCE */, probe, sqs, 3, vals) == 0,
+          "measure_all distance");
+    CHECK(vals[0] == 5.0 && vals[1] == 15.0 && vals[2] == 25.0, "measure_all distances exact");
+    CHECK(geos_shim_measure_all(s, 0, probe, sqs, 3, vals) == 1 && has_error(s),
+          "measure_all unary op rejects a reference geometry");
+    geos_shim_last_error(s);
+    CHECK(geos_shim_measure_all(s, 2, NULL, sqs, 3, vals) == 1 && has_error(s),
+          "measure_all binary op requires a reference geometry");
+    geos_shim_last_error(s);
+    CHECK(geos_shim_measure_all(s, 77, NULL, sqs, 3, vals) == 1 && has_error(s),
+          "measure_all unknown op id");
+    geos_shim_last_error(s);
+    geos_shim_destroy_many(s, (void *[]){probe, sqs[0], sqs[1], sqs[2]}, 4);
+  }
+
+  /* 23. buffer_all with TS-style params; known round-join area bracket. */
+  {
+    extern void *GEOSBufferParams_create_r(void *);
+    extern void GEOSBufferParams_destroy_r(void *, void *);
+    void *params = GEOSBufferParams_create_r(ctx);
+    CHECK(params != NULL, "buffer params fixture");
+    void *pts[2];
+    pts[0] = mk_point(s, ctx, 0, 0);
+    pts[1] = mk_point(s, ctx, 50, 50);
+    void *bufs[2] = {0};
+    CHECK(geos_shim_buffer_all(s, params, 1.0, pts, 2, bufs) == 0, "buffer_all succeeds");
+    double ba = -1;
+    CHECK(bufs[0] && GEOSArea_r(ctx, bufs[0], &ba) == 1 && ba > 3.0 && ba < 3.2,
+          "buffer_all point disc area ≈ π (quadSegs 8 default)");
+    CHECK(geos_shim_buffer_all(s, NULL, 1.0, pts, 2, bufs) == 1 && has_error(s),
+          "buffer_all without params is an error");
+    geos_shim_last_error(s);
+    geos_shim_destroy_many(s, bufs, 2);
+    GEOSBufferParams_destroy_r(ctx, params);
+    geos_shim_destroy_many(s, (void *[]){pts[0], pts[1]}, 2);
+  }
+
+  /* 24. read_wkb_many: two hardcoded POINT WKBs, byte offsets; failure
+   * mid-array destroys partials; decreasing offsets rejected. */
+  {
+    extern void *GEOSWKBReader_create_r(void *);
+    extern void GEOSWKBReader_destroy_r(void *, void *);
+    /* POINT(0 0) and POINT(3 4), little-endian ISO WKB, 21 bytes each:
+     * order(1) + type(4) + x(8) + y(8). */
+    unsigned char wkb[42] = {
+      /* POINT(0 0) */
+      0x01, 0x01, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* x = 0.0 */
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* y = 0.0 */
+      /* POINT(3 4) */
+      0x01, 0x01, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x40, /* x = 3.0 */
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40, /* y = 4.0 */
+    };
+    void *reader = GEOSWKBReader_create_r(ctx);
+    CHECK(reader != NULL, "wkb reader fixture");
+    unsigned int woffs[2] = {21, 42};
+    void *rd[2] = {0};
+    CHECK(geos_shim_read_wkb_many(s, reader, wkb, woffs, 2, rd) == 0, "read_wkb_many succeeds");
+    double dd = -1;
+    CHECK(rd[0] && rd[1] && GEOSDistance_r(ctx, rd[0], rd[1], &dd) == 1 && dd == 5.0,
+          "read_wkb_many geometries are POINT(0 0) and POINT(3 4)");
+    geos_shim_destroy_many(s, rd, 2);
+    /* malformed second record → exception, first partial destroyed */
+    wkb[25] = 0xff;
+    CHECK(geos_shim_read_wkb_many(s, reader, wkb, woffs, 2, rd) == 1 && has_error(s),
+          "read_wkb_many malformed WKB aborts all-or-nothing");
+    geos_shim_last_error(s);
+    wkb[25] = 0;
+    unsigned int badOffs[2] = {42, 21};
+    CHECK(geos_shim_read_wkb_many(s, reader, wkb, badOffs, 2, rd) == 1 && has_error(s),
+          "read_wkb_many decreasing offsets rejected");
+    geos_shim_last_error(s);
+    GEOSWKBReader_destroy_r(ctx, reader);
+  }
+
+  /* 25. num_points_many (parallel chunk weights) + heap_bytes (D24). */
+  {
+    void *l3 = geos_shim_build_linestring(s, (double[6]){0, 0, 1, 1, 2, 2}, 3, 0, 0);
+    void *l2 = geos_shim_build_linestring(s, (double[4]){5, 5, 6, 6}, 2, 0, 0);
+    void *ls[2] = {l3, l2};
+    uint32_t counts[2] = {0, 0};
+    CHECK(geos_shim_num_points_many(s, ls, 2, counts) == 0, "num_points_many succeeds");
+    CHECK(counts[0] == 3 && counts[1] == 2, "num_points_many counts exact");
+    CHECK(geos_shim_num_points_many(s, (void *[2]){l3, NULL}, 2, counts) == 1 && has_error(s),
+          "num_points_many NULL input is an error");
+    geos_shim_last_error(s);
+    int64_t bytes = -1;
+    CHECK(geos_shim_heap_bytes(s, ls, 2, &bytes) == 0, "heap_bytes succeeds");
+    CHECK(bytes == (64 + 3 * 2 * 8) + (64 + 2 * 2 * 8), "heap_bytes estimate exact for 2D lines");
+    int64_t zero = -1;
+    CHECK(geos_shim_heap_bytes(s, NULL, 0, &zero) == 0 && zero == 0, "heap_bytes n=0 is 0");
+    /* vertex counts are type-generic (GEOSGeomGetNumPoints_r is
+     * linestring-only): a polygon sums its rings. */
+    void *poly = geos_shim_build_polygon(
+        s, (double[10]){0, 0, 2, 0, 2, 2, 0, 2, 0, 0}, (unsigned int[1]){5}, 1, 0, 0);
+    void *mp[1] = {poly};
+    uint32_t pc = 0;
+    CHECK(geos_shim_num_points_many(s, mp, 1, &pc) == 0 && pc == 5,
+          "num_points_many counts polygon rings (linestring-only accessor absorbed)");
+    int64_t pbytes = -1;
+    CHECK(geos_shim_heap_bytes(s, mp, 1, &pbytes) == 0 && pbytes == 64 + 5 * 2 * 8,
+          "heap_bytes works for polygons");
+    /* POINT is not a SimpleCurve in 3.14 — GetNumPoints throws on it; the
+     * shim counts a point as 1 vertex without that accessor. */
+    void *pt = mk_point(s, ctx, 7, 7);
+    void *pe = mk_point(s, ctx, 9, 9);
+    uint32_t ptc[2] = {0, 0};
+    void *pp[2] = {pt, pe};
+    CHECK(geos_shim_num_points_many(s, pp, 2, ptc) == 0 && ptc[0] == 1 && ptc[1] == 1,
+          "num_points_many counts POINT geometries (SimpleCurve cast absorbed)");
+    /* empty point → 0 (the isEmpty branch of the typeId-0 case) */
+    extern void *GEOSGeom_createEmptyPoint_r(void *);
+    void *pempty = GEOSGeom_createEmptyPoint_r(ctx);
+    CHECK(pempty != NULL, "empty point fixture");
+    uint32_t ec = 9;
+    CHECK(geos_shim_num_points_many(s, (void *[1]){pempty}, 1, &ec) == 0 && ec == 0,
+          "num_points_many counts an EMPTY point as 0");
+    GEOSGeom_destroy_r(ctx, pempty);
+    geos_shim_destroy_many(s, (void *[]){pt, pe}, 2);
+    geos_shim_destroy_many(s, mp, 1);
+    geos_shim_destroy_many(s, ls, 2);
+  }
+
+  /* 26. build_polygonal_many: four unit tiles from one buffer, one call. */
+  {
+    double xy[40]; /* 4 tiles × 5 coords × 2 doubles */
+    for (int t = 0; t < 4; t++) {
+      double x = (t % 2) * 1.0, y = (t / 2) * 1.0;
+      double ring[10] = {x, y, x + 1, y, x + 1, y + 1, x, y + 1, x, y};
+      for (int k = 0; k < 10; k++)
+        xy[t * 10 + k] = ring[k];
+    }
+    unsigned int rings[4] = {5, 10, 15, 20};
+    unsigned int parts[4] = {1, 2, 3, 4};
+    void *polys[4] = {0};
+    CHECK(geos_shim_build_polygonal_many(s, xy, rings, 4, parts, 4, 0, 0, polys) == 0,
+          "build_polygonal_many succeeds");
+    int ok = 1;
+    for (int t = 0; t < 4; t++) {
+      double a = -1;
+      if (!polys[t] || GEOSArea_r(ctx, polys[t], &a) != 1 || a < 0.999 || a > 1.001)
+        ok = 0;
+    }
+    CHECK(ok, "build_polygonal_many tiles all area 1");
+    geos_shim_destroy_many(s, polys, 4);
+    unsigned int badParts[4] = {1, 2, 3, 5}; /* last != nrings */
+    CHECK(geos_shim_build_polygonal_many(s, xy, rings, 4, badParts, 4, 0, 0, polys) == 1 &&
+              has_error(s),
+          "build_polygonal_many rejects partOffsets ending != nrings");
+    geos_shim_last_error(s);
+  }
+
+  /* 27. build_linestrings_many: two lines from one buffer; short line
+   * rejected; strict-increase rule enforced. */
+  {
+    double xy[10] = {0, 0, 1, 1, 5, 5, 6, 6, 7, 7};
+    unsigned int loffs[2] = {3, 5};
+    void *lines[2] = {0};
+    CHECK(geos_shim_build_linestrings_many(s, xy, loffs, 2, 0, 0, lines) == 0,
+          "build_linestrings_many succeeds");
+    uint32_t counts[2] = {0, 0};
+    void *ls[2] = {lines[0], lines[1]};
+    CHECK(geos_shim_num_points_many(s, ls, 2, counts) == 0 && counts[0] == 3 && counts[1] == 2,
+          "build_linestrings_many line vertex counts exact");
+    geos_shim_destroy_many(s, lines, 2);
+    unsigned int shortOffs[2] = {1, 3}; /* line 0 has 1 coordinate */
+    CHECK(geos_shim_build_linestrings_many(s, xy, shortOffs, 2, 0, 0, lines) == 1 && has_error(s),
+          "build_linestrings_many rejects a 1-coordinate line");
+    geos_shim_last_error(s);
+    unsigned int flatOffs[2] = {3, 3};
+    CHECK(geos_shim_build_linestrings_many(s, xy, flatOffs, 2, 0, 0, lines) == 1 && has_error(s),
+          "build_linestrings_many rejects non-increasing offsets");
+    geos_shim_last_error(s);
+  }
+
+  /* 28. Fused tree query + prepared filter: one crossing. Rebuild a small
+   * diagonal tree, prepare a big square, filter INTERSECTS. */
+  {
+    extern void *GEOSSTRtree_create_r(void *, size_t);
+    extern void GEOSSTRtree_insert_r(void *, void *, const void *, void *);
+    extern int GEOSSTRtree_build_r(void *, void *);
+    extern void GEOSSTRtree_destroy_r(void *, void *);
+    void *tree2 = GEOSSTRtree_create_r(ctx, 10);
+    CHECK(tree2 != NULL, "fused tree fixture");
+    void *fitems[50];
+    for (int i = 0; i < 50; i++) {
+      double xy2[4] = {i, i, i + 1, i + 1};
+      fitems[i] = mk_line(s, xy2, 2);
+      GEOSSTRtree_insert_r(ctx, tree2, fitems[i], (void *)(intptr_t)(i + 1));
+    }
+    GEOSSTRtree_build_r(ctx, tree2);
+    void *table2 = geos_shim_strtree_bind_geoms(s, fitems, 50);
+    CHECK(table2 != NULL, "fused bind table");
+    void *fsq = geos_shim_build_polygon(
+        s, (double[10]){0, 0, 14.5, 0, 14.5, 14.5, 0, 14.5, 0, 0}, (unsigned int[1]){5}, 1, 0, 0);
+    void *fprep = GEOSPrepare_r(ctx, fsq);
+    CHECK(fprep != NULL, "fused prepared fixture");
+    void *fq = mk_line(s, (double[4]){10, 10, 15, 15}, 2); /* candidates 9..15 */
+    int32_t fids[64] = {0};
+    int total = geos_shim_strtree_query_prepared(s, tree2, fq, fprep, 0 /* INTERSECTS */, table2,
+                                                 fids, 64);
+    CHECK(total == 6, "fused filter keeps segments 9..14 (15 starts at 15,15)");
+    int fok = total == 6;
+    for (int k = 0; k < total; k++)
+      if (fids[k] < 9 || fids[k] > 14)
+        fok = 0;
+    CHECK(fok, "fused ids are the expected range");
+    /* small buffer: total still reported, prefix written */
+    int32_t ftiny[2] = {-1, -1};
+    int ftotal2 = geos_shim_strtree_query_prepared(s, tree2, fq, fprep, 0, table2, ftiny, 2);
+    CHECK(ftotal2 == 6 && ftiny[0] >= 9 && ftiny[1] >= 9, "fused small buffer writes prefix only");
+    /* no table → error */
+    CHECK(geos_shim_strtree_query_prepared(s, tree2, fq, fprep, 0, NULL, fids, 64) == -1 &&
+              has_error(s),
+          "fused without a bind table is an error");
+    geos_shim_last_error(s);
+    GEOSGeom_destroy_r(ctx, fq);
+    GEOSPreparedGeom_destroy_r(ctx, fprep);
+    geos_shim_destroy_many(s, (void *[]){fsq, fitems[0], fitems[1], fitems[2], fitems[3],
+                                         fitems[4], fitems[5], fitems[6], fitems[7], fitems[8]},
+                           10);
+    /* destroy the rest of the fixture items (9..49) */
+    geos_shim_destroy_many(s, &((void **)fitems)[9], 41);
+    geos_shim_strtree_table_free(table2);
+    GEOSSTRtree_destroy_r(ctx, tree2);
   }
 
   geos_shim_finish(s);
