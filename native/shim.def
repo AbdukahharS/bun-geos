@@ -1,0 +1,45 @@
+; bun-geos C shim — Windows export list (win32-x64, MSVC /DEF: link).
+;
+; LoadLibrary + GetProcAddress (what bun:ffi's dlopen does on Windows) only
+; see symbols the DLL actually exports; unlike ELF, MSVC does not export
+; everything by default. This file lists every geos_shim_* definition in
+; native/shim.c.
+;
+; KEEP-IN-SYNC: `bun run build:native` (and the CI matrix) regenerates this
+; list from shim.c and fails on drift on EVERY platform, so the fast dev/CI
+; paths catch it — not the Windows job. Regenerate with:
+;   bun run scripts/native/def.ts --write
+LIBRARY shim
+EXPORTS
+	geos_shim_buffer_all
+	geos_shim_build_collection
+	geos_shim_build_linestring
+	geos_shim_build_linestrings_many
+	geos_shim_build_polygon
+	geos_shim_build_polygonal_many
+	geos_shim_clone_collect
+	geos_shim_clone_many
+	geos_shim_clone_members
+	geos_shim_context
+	geos_shim_coverage_union
+	geos_shim_destroy_many
+	geos_shim_finish
+	geos_shim_heap_bytes
+	geos_shim_init
+	geos_shim_interrupt_request
+	geos_shim_interrupt_reset
+	geos_shim_last_error
+	geos_shim_last_notice
+	geos_shim_measure_all
+	geos_shim_num_points_many
+	geos_shim_overlay_all
+	geos_shim_pred_all
+	geos_shim_prepared_pred_all
+	geos_shim_prepared_relate_pattern_all
+	geos_shim_read_wkb_many
+	geos_shim_strtree_bind_geoms
+	geos_shim_strtree_nearest
+	geos_shim_strtree_query
+	geos_shim_strtree_query_prepared
+	geos_shim_strtree_table_free
+	geos_shim_union_all

@@ -33,8 +33,14 @@
  *   silently wrong, not an error).
  *
  * (cc()/TinyCC was once considered as the dev fallback for this file; it is
- * dropped — Bun's embedded TCC rejects the __thread state below, and
+ * dropped — Bun's embedded TCC rejects the thread-local state below, and
  * thread-local capture is load-bearing. See shim.md §4 and spike-results F7.)
+ *
+ * Phase 4 portability notes: the shim compiles under GCC/Clang (Linux glibc
+ * + musl, macOS) and MSVC (win32-x64). GNU-isms are confined to the
+ * SHIM_TLS / interrupt-flag macros near their definitions; Windows exports
+ * (LoadLibrary + GetProcAddress need visible symbols) are listed in
+ * native/shim.def, linked via /DEF: on the MSVC path.
  */
 #include <stdarg.h>
 #include <stdint.h>
@@ -172,10 +178,27 @@ extern int GEOSDistance_r(GEOSContextHandle_t handle, const GEOSGeometry *g1,
 
 #define SHIM_MSG_MAX 1024
 
-static __thread char t_error[SHIM_MSG_MAX];
-static __thread char t_notice[SHIM_MSG_MAX];
-static __thread int t_has_error = 0;
-static __thread int t_has_notice = 0;
+/* Thread-local storage, portably (Phase 4: the shim ships precompiled per
+ * platform, including win32-x64 built with MSVC):
+ * - MSVC's C compiler has no `__thread` and no usable C11 `_Thread_local`
+ *   in its default mode — `__declspec(thread)` is the supported spelling;
+ * - GCC/Clang spell it `__thread` (pre-C11-compatible everywhere we build);
+ * - anything else C11 gets `_Thread_local`.
+ * The capture buffers are load-bearing (per-worker contexts, D3) — there is
+ * no TLS-free build of this shim (the cc()/TinyCC lesson, spike-results F7).
+ */
+#if defined(_MSC_VER)
+#define SHIM_TLS __declspec(thread)
+#elif defined(__GNUC__) || defined(__clang__)
+#define SHIM_TLS __thread
+#else
+#define SHIM_TLS _Thread_local
+#endif
+
+static SHIM_TLS char t_error[SHIM_MSG_MAX];
+static SHIM_TLS char t_notice[SHIM_MSG_MAX];
+static SHIM_TLS int t_has_error = 0;
+static SHIM_TLS int t_has_notice = 0;
 
 /* GEOS invokes these with printf-style fmt+args; only the shim side ever
  * touches varargs (it is the callee, compiled by a real C compiler). */
@@ -436,7 +459,14 @@ void geos_shim_destroy_many(GeosShim *shim, GEOSGeometry **geoms, unsigned int n
  * per-context callback installed at init reads it at GEOS's own
  * interruption points.
  */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
+/* MSVC is excluded even when it advertises C11: its <stdatomic.h> support
+ * is incomplete in the toolchains we build with, and the fallback below is
+ * sufficient — aligned 32-bit volatile reads/writes are atomic on every
+ * target we ship (x86-64/aarch64, Windows included), the flag is a single
+ * int with relaxed semantics (D19), and the reset ordering is enforced by
+ * the JS layer's `finally` (withSignal), not by memory ordering. */
+#if !defined(_MSC_VER) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && \
+    !defined(__STDC_NO_ATOMICS__)
 #include <stdatomic.h>
 static atomic_int g_interrupt = 0;
 static void shim_set_interrupt(int v) {
@@ -446,9 +476,8 @@ static int shim_get_interrupt(void) {
   return atomic_load_explicit(&g_interrupt, memory_order_relaxed);
 }
 #else
-/* Pre-C11 fallback (MSVC pre-2022): aligned 32-bit volatile stores are
- * atomic on all supported targets; the flag is a single int, so this is the
- * classic "volatile boolean" pattern. */
+/* Pre-C11 / MSVC fallback (D19's "volatile fallback"): single-word flag,
+ * relaxed ordering — see the note above. */
 static volatile int g_interrupt = 0;
 static void shim_set_interrupt(int v) { g_interrupt = v; }
 static int shim_get_interrupt(void) { return g_interrupt; }
