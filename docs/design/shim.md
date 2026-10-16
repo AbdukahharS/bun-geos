@@ -6,6 +6,16 @@
 > [decision record](../decisions.md). It is the only C code in the repository and the
 > only place where `bun:ffi`'s limits are engineered around.
 >
+> **Phase 4 status (Oct 2026):** the shim is packaging-ready — portable
+> across GCC/Clang (linux glibc/musl, macOS) and MSVC (win32-x64):
+> `SHIM_TLS` macro for the thread-local capture, the pre-C11 volatile
+> atomic fallback forced on `_MSC_VER`, and the Windows export list in
+> `native/shim.def` (sync-checked on every platform build). Per-target
+> compile/link flags live in `scripts/native/{targets,lib}.ts`; the flat
+> package staging (shim + libgeos + libgeos_c as siblings) happens in
+> `scripts/native/shim.ts` and is proven by the platform smoke against a
+> detached tree.
+>
 > **Phase 2 status (Oct 2026):** the Phase 2 surface is implemented — interrupt
 > accessors over an ATOMIC GLOBAL flag (D19; per-context
 > `GEOSContext_setInterruptCallback_r` installed at init), prepared-predicate batch

@@ -73,6 +73,12 @@ Spike evidence: the pure-FFI JSCallback handler receives only the `"%s"` format 
 (GEOS calls `handler("%s", message)`), making the shim empirically mandatory, not just
 standard-compliant. See [shim design](design/shim.md) and
 [spike results](research/spike-results.md) (F4, F7).
+**Phase 4 amendment (portability):** the shim builds under GCC/Clang AND MSVC —
+`SHIM_TLS` macro (`__declspec(thread)` on MSVC; the TCC lesson generalizes: there is no
+TLS-free build), pre-C11 volatile atomics forced on `_MSC_VER` (its `<stdatomic.h>` is
+incomplete), and Windows exports via `native/shim.def` (MSVC exports nothing by default;
+LoadLibrary/GetProcAddress see only listed symbols) — sync-checked on every platform build
+so drift never reaches the Windows job.
 
 ## D5 — Strict GEOS 3.14; no capability flags
 
@@ -167,6 +173,12 @@ GeoJSON copies do. Long operations run on workers; cooperative cancellation via
 
 **Consequences.** Deterministic memory model; predictable event-loop behavior; see
 [concurrency design](design/concurrency.md).
+**Phase 4 amendment (Windows):** DLL dependency resolution is preload-based there — the
+Windows search path excludes a loaded DLL's own directory, so the loader dlopens
+`geos.dll` → `geos_c.dll` → `shim.dll` by absolute path and the later loads bind their NEEDED
+names against already-mapped modules (the F3 pure-JS fallback generalized; tested by the
+win32 platform smoke). `BUN_GEOS_PACKAGE_DIR` additionally overrides platform-package
+resolution so the smoke can load the STAGED package before it exists on any registry.
 
 ## D12 — LGPL compliance via dynamic linking; never static-link GEOS
 
@@ -509,9 +521,55 @@ unchanged: robust overlays, repair, indexed/batched workloads only.
 
 ---
 
+## D26 — Stage-and-publish; raw TS source ships; token auth now, trusted publishing later
+
+**Context.** Phase 4 needs a publish model for 8 packages (D6/D7) with three
+constraints: dev and CI keep working unchanged; releases must not require
+version-bump commits; and the published runtime must be exactly the tested
+bytes (the whole Phase-4 gate philosophy smokes the staged package on every
+runner before anything publishes).
+
+**Decision.**
+1. **Stage-and-publish** (esbuild precedent): the repo manifest stays
+   `private: true` with the lockstep `version` as the single source; the
+   release scripts (`scripts/package-platform.ts` / `package-main.ts`)
+   generate all 8 publish trees under gitignored `packages/`, and
+   `scripts/release.ts` publishes from there. The staged MAIN manifest
+   drops `private` and the typescript peerDep (consumers bring their own
+   TS) and gains `publishConfig.access: "public"` plus exact
+   `optionalDependencies` pins.
+2. **No bundler, raw TS ships** (supersedes any "build for publish" idea):
+   Bun executes TS natively (D1) and TS 7 native reads `.ts` entry points,
+   so `exports` points at `index.ts` and there is no build step — the
+   published bytes are the tested bytes. `bun build --compile` stays a
+   consumer-side scenario (packaging.md §6, #40076 documented per release).
+   Contingency if a future Bun breaks direct-TS running: a
+   `bun build --target=bun` step inside `package-main.ts` — localized by
+   design.
+3. **Auth: granular token now; trusted publishing is a designed-for
+   switch.** `NPM_TOKEN` (granular, org-scoped, expiring) via the `release`
+   GitHub environment; release.ts writes a per-package `.npmrc` with
+   `${NPM_TOKEN}` interpolation (npm reads `.npmrc` from the project root
+   only — never ancestors; the file carries no plaintext secret). The
+   switch procedure and its verified constraints (per-package post-create
+   config, 2-day validation window, immutable configs, calling-workflow
+   name binding → `release.yml` is monolithic, `repository.url` exact,
+   npm ≥ 11.5.1/Node ≥ 22.14) live in packaging.md §7.5.
+
+**Consequences.** No release-time commits; accidental local publishes are
+structurally impossible (repo is private, only CI holds the token);
+platform smoke tests load the STAGED tree via `BUN_GEOS_PACKAGE_DIR`
+(loader override), so what is smoked is what ships. The token is the only
+long-lived secret until the OIDC switch retires it.
+
+---
+
 ## Open design work (tracked, not yet decided in detail)
 
 1. ~~Worker ownership rules — `parallel()` chunking semantics, AbortSignal
    plumbing~~ **Decided in Phase 3** (D22/D23).
-2. **CI build matrix runbook** — per-platform flags, stripping, packaging, provenance.
+2. ~~**CI build matrix runbook** — per-platform flags, stripping, packaging,
+   provenance.~~ **Decided in Phase 4** — the runbook is
+   [packaging.md §7](operations/packaging.md); the per-target toolchain
+   table is code (`scripts/native/targets.ts` + `lib.ts`).
 3. **Full API reference draft** — JS API ↔ `geos_c` symbol mapping table.

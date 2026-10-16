@@ -116,6 +116,19 @@ consequence note.**
 
 ## Phase 4 — Packaging & release
 
+> **Status: IMPLEMENTED — first real publish pending** (October 2026,
+> GEOS 3.14.1 tarball `3c20919c…`, Bun 1.4.3). The 8-package layout
+> (D6/D7/D26), the release pipeline, and the licensing machinery are in the
+> repo and rehearsed: the verdaccio dry-run passes end-to-end (publish →
+> resolve → clean `bun add` → overlay), the platform smoke passes against a
+> detached staged tree, and the flat-package rpath story is proven on
+> linux-x64-gnu. Shim portability (D4 amendment) + the Windows loader
+> preload order are in; their runner verification happens in the matrix
+> (win32/darwin/musl jobs), which is also where the first real Windows
+> `bun:ffi` evidence will come from. The remaining step is the token-gated
+> `v0.0.1` publish + the install matrix's < 60 s evidence — the runbook
+> ([packaging](operations/packaging.md) §7) holds the checklist.
+
 - CI build matrix producing the 7 platform packages + main package
   ([packaging](operations/packaging.md)).
 - LGPL files in every platform package ([licensing](operations/licensing.md)).
@@ -125,6 +138,8 @@ consequence note.**
 
 **Exit criteria.** A clean machine (`macOS arm64`, `Ubuntu 24.04`, `Alpine`, `Windows`) runs
 `bun add @shzd/bun-geos` and an overlay in < 60 s total, with no other installs.
+→ Mechanized as `.github/workflows/install-matrix.yml` (bun/npm/pnpm × the four machine
+classes, timing-asserted); evidence recorded after the first release.
 
 ## Phase 5 — Hardening & polish
 

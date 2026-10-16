@@ -1,6 +1,11 @@
 # Operations: licensing
 
-> Status: reference + compliance checklist. GEOS is licensed LGPL-2.1+ (the npm metadata
+> Status: **IMPLEMENTED (Phase 4)** — compliance is mechanized: the pinned
+> tarball + SHA-256 lives in `scripts/native/lib.ts`; every platform
+> package ships the verbatim LGPL-2.1 `LICENSE` + generated `THIRD_PARTY.md`
+> (`scripts/package-platform.ts`); `scripts/native/licensing-check.ts` runs
+> the §4 checklist's dynamic-linking and no-static-symbols checks in CI on
+> every target. GEOS is licensed LGPL-2.1+ (the npm metadata
 > of geos-wasm records LGPL-3.0-or-later; the GEOS source tree ships LGPL-2.1 — we comply
 > with both ends of the "+" and credit accordingly).
 

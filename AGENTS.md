@@ -1,24 +1,37 @@
 # bun-geos
 
 Bun-native TypeScript library wrapping GEOS 3.14 (`bun:ffi` + a small C shim).
-Phase 1 (core) and Phase 2 (differentiators: prepared predicates, STRtree,
-unionAll dispatch, repair suite, precision model, interrupt) are implemented
-under `src/`; the Phase 0 spike remains under `spike/` as the FFI-semantics
-regression net; research/design/operations docs live in `docs/`.
+Phase 1 (core), Phase 2 (differentiators: prepared predicates, STRtree,
+unionAll dispatch, repair suite, precision model, interrupt), Phase 3
+(batch ops, worker pool, memory accounting), and Phase 4 (packaging &
+release tooling) are implemented under `src/`, `native/`, and `scripts/`;
+the Phase 0 spike remains under `spike/` as the FFI-semantics regression
+net; research/design/operations docs live in `docs/`.
 
 ## Layout
 
 ```
 index.ts                 public barrel — re-exports src/index.ts
 src/                     the library (loader, symbols, geos/geometry/arena,
-                         construct, ops/, io/)
-native/shim.c            the entire C surface (~300 lines, reviewed as prose)
-scripts/build-native.ts  bun run build:native — GEOS 3.14.1 + shim → build/native/
+                         construct, ops/, io/, parallel/, spatial/)
+native/shim.c            the entire C surface, reviewed as prose (portable:
+                         GCC/Clang + MSVC — SHIM_TLS/atomics macros)
+native/shim.def          Windows export list; sync-checked on every build
+scripts/native/          the per-target toolchain table + GEOS/shim builds
+                         (targets.ts is the single source for CI + dev)
+scripts/build-native.ts  bun run build:native — host build → build/native/
+scripts/package-*.ts     stage the 8 publish trees → packages/ (gitignored)
+scripts/release.ts       the publish pipeline (token auth; OIDC reserved)
+scripts/release-dry-run.ts  verdaccio end-to-end rehearsal
+scripts/platform-smoke.ts   the per-platform gate against a STAGED tree
 test/
   unit/ properties/ soak/ differential/   bun test test/
   native/shim_selftest.c                  bun run test:native (ASan/UBSan)
 spike/                   Phase 0 evidence; `bun test spike/` gates Bun bumps
-vendor/, build/          GEOS checkout + native build tree (gitignored)
+vendor/, build/          legacy spike checkout + native build tree (gitignored)
+packages/                staged publish trees (gitignored; generated)
+.github/workflows/       ci.yml (dev gate) · release.yml (matrix+publish) ·
+                         install-matrix.yml (the <60s exit criterion)
 ```
 
 ## Toolchain: Bun, not Node
