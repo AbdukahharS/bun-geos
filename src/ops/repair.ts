@@ -10,6 +10,7 @@
  * first: user input is never mutated.
  */
 import { CString } from "bun:ffi";
+import type { Arena } from "../arena.ts";
 import type { Geometry } from "../geometry.ts";
 import type { Geos } from "../geos.ts";
 import { ptrOf } from "../ptrs.ts";
@@ -22,6 +23,8 @@ export interface MakeValidOptions {
   method?: keyof typeof MakeValidMethod;
   /** Keep collapsed linear elements (structure method). Default false. */
   keepCollapsed?: boolean;
+  /** Register the result with this arena instead of the innermost open one. */
+  arena?: Arena;
 }
 
 /** Repair an invalid geometry into a valid one (GEOSMakeValidWithParams). */
@@ -46,7 +49,7 @@ export function makeValid(geos: Geos, g: Geometry, opts: MakeValidOptions = {}):
     throw geos.fail("GEOSMakeValidParams_setKeepCollapsed_r");
   }
   const out = ops.GEOSMakeValidWithParams_r(geos.ctx, g.ptr, p);
-  return geos.take("GEOSMakeValidWithParams_r", out as GeomPtr | null);
+  return geos.take("GEOSMakeValidWithParams_r", out as GeomPtr | null, opts.arena ?? undefined);
 }
 
 export interface ValidityDetail {

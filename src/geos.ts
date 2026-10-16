@@ -26,7 +26,7 @@ import { Geometry } from "./geometry.ts";
 import { type OpOptions, withSignal } from "./interrupt.ts";
 import { fromArrow, toArrow } from "./io/arrow.ts";
 import { fromGeoJSON, toGeoJSON } from "./io/geojson.ts";
-import { fromWKB, toWKB, type WKBOptions } from "./io/wkb.ts";
+import { type FromWKBManyOptions, fromWKB, fromWKBMany, toWKB, type WKBOptions } from "./io/wkb.ts";
 import { fromWKT, toWKT, type WKTOptions } from "./io/wkt.ts";
 import { openLibrary } from "./loader.ts";
 import {
@@ -45,6 +45,25 @@ import {
   setSrid,
   sridOf,
 } from "./ops/accessors.ts";
+import {
+  areaAll,
+  type BatchInput,
+  type BatchOptions,
+  type BufferAllOptions,
+  bufferAll,
+  differenceAll,
+  differencePrecAll,
+  distanceAll,
+  frechetAll,
+  hausdorffAll,
+  intersectionAll,
+  intersectionPrecAll,
+  lengthAll,
+  predicateAll,
+  symDifferenceAll,
+  symDifferencePrecAll,
+  type UnpreparedPredName,
+} from "./ops/batch.ts";
 import { type BufferOptions, buffer } from "./ops/buffer.ts";
 import {
   type CoverageCleanOptions,
@@ -99,6 +118,7 @@ import {
   type SimpleDetail,
   type ValidityDetail,
 } from "./ops/repair.ts";
+import { Parallel } from "./parallel/pool.ts";
 import { STRtree } from "./spatial/strtree.ts";
 import type { Native } from "./symbols.ts";
 import type {
@@ -125,6 +145,8 @@ export interface GeosStats {
   finalized: number;
   /** High-water mark of live geometries. */
   peakLiveGeoms: number;
+  /** High-water mark of geometries under open arenas (Phase 3, D24). */
+  arenaHighWater: number;
 }
 
 /** Floor estimate of C-heap bytes for one live GEOSGeometry. */
@@ -176,11 +198,15 @@ export class Geos implements Disposable {
    * before the context tears down (D17): `Prepared`, `STRtree`.
    */
   readonly #consumables: Disposable[] = [];
+  /** The lazily-created worker pool behind `geos.parallel` (Phase 3, D23). */
+  #parallel: Parallel | null = null;
   readonly #registry = new FinalizationRegistry<FinalizerPayload>((payload) => {
     payload.geos.#reap(payload);
   });
   #finalized = 0;
   #peak = 0;
+  /** Max geometries under open arenas at any one time (D24). */
+  #arenaHighWater = 0;
 
   /** @internal */
   constructor(opts?: { library?: string }) {
@@ -209,7 +235,29 @@ export class Geos implements Disposable {
       heapBytesApprox: this.#live.size * GEOM_MIN_BYTES,
       finalized: this.#finalized,
       peakLiveGeoms: this.#peak,
+      arenaHighWater: this.#arenaHighWater,
     };
+  }
+
+  /**
+   * Data-derived heap estimate (Phase 3, D24): ONE shim crossing over the
+   * live pointer set — per geometry, 64 bytes overhead plus vertices ×
+   * coordinate dimension × 8. Still documented as approximate (M ordinates
+   * are not separately detectable per-geometry on the C API), but it tracks
+   * actual geometry weight instead of a floor. `stats` remains the cheap
+   * counting surface; call this deliberately (leak assertions, dashboards).
+   */
+  statsPrecise(): { liveGeoms: number; heapBytesApprox: number } {
+    this.assertOpen("statsPrecise()");
+    const n = this.#live.size;
+    if (n === 0) return { liveGeoms: 0, heapBytesApprox: 0 };
+    const ptrs = new BigUint64Array(n);
+    let i = 0;
+    for (const p of this.#live.keys()) ptrs[i++] = BigInt(p);
+    const bytes = new BigInt64Array(1);
+    const r = this.native.shim.geos_shim_heap_bytes(this.shim, ptrs, n, bytes);
+    if (r !== 0) throw this.fail("geos_shim_heap_bytes");
+    return { liveGeoms: n, heapBytesApprox: Number(bytes[0]!) };
   }
 
   /**
@@ -221,6 +269,20 @@ export class Geos implements Disposable {
     const arena = new Arena(this);
     this.#arenaStack.push(arena);
     return arena;
+  }
+
+  /**
+   * The worker pool for batch ops (Phase 3, D23) — lazily spawned on first
+   * access; the pool is a consumable, so disposing the context shuts the
+   * workers down (with the shutdown-ack protocol) first.
+   */
+  get parallel(): Parallel {
+    this.assertOpen("parallel");
+    if (this.#parallel === null) {
+      this.#parallel = new Parallel(this);
+      this.registerConsumable(this.#parallel);
+    }
+    return this.#parallel;
   }
 
   // ---------------------------------------------------------------- internals
@@ -314,7 +376,13 @@ export class Geos implements Disposable {
     const geom = new Geometry(this, ptr, { owned: true, token, arena });
     // Backstop only (D10): fires if the wrapper is collected undisposed.
     this.#registry.register(geom, { geos: this, ptr, arena, token }, token);
-    if (arena) arena.add(ptr);
+    if (arena) {
+      arena.add(ptr);
+      // O(arena depth) — depth is small; only paid for arena-born geometries.
+      let under = 0;
+      for (const a of this.#arenaStack) under += a.size;
+      this.#arenaHighWater = Math.max(this.#arenaHighWater, under);
+    }
     return geom;
   }
 
@@ -328,6 +396,35 @@ export class Geos implements Disposable {
     this.assertOpen(op);
     if (ptr === null) throw this.fail(op);
     return new Geometry(this, ptr, { owned: false, token: null, arena: null, parent });
+  }
+
+  /**
+   * @internal — the innermost open arena, or null. Batch ops capture this
+   * BEFORE opening their transient normalization arena so outputs land in
+   * the caller's arena, never the transient one.
+   */
+  currentArena(): Arena | null {
+    return this.#arenaStack.at(-1) ?? null;
+  }
+
+  /**
+   * @internal — wrap n owned pointers returned by a batch shim call
+   * (Phase 3, D22). Each pointer is registered exactly as `take` would
+   * (stats, arena, finalization backstop); the per-wrapper JS cost is the
+   * irreducible part of a batch op — the C loop has already collapsed the
+   * FFI crossings.
+   */
+  takeMany(
+    op: string,
+    ptrs: BigUint64Array,
+    arena: Arena | null = this.currentArena(),
+  ): Geometry[] {
+    this.assertOpen(op);
+    const out: Geometry[] = new Array(ptrs.length);
+    for (let i = 0; i < ptrs.length; i++) {
+      out[i] = this.take(op, Number(ptrs[i]!) as GeomPtr, arena);
+    }
+    return out;
   }
 
   /** @internal — raw pointer check for callers that build Geometry themselves. */
@@ -494,8 +591,8 @@ export class Geos implements Disposable {
   fromParts(kind: CollectionKind, parts: Geometry[], opts?: FromPartsOptions): Geometry {
     return fromParts(this, kind, parts, opts);
   }
-  empty(kind: EmptyKind): Geometry {
-    return empty(this, kind);
+  empty(kind: EmptyKind, arena?: Arena): Geometry {
+    return empty(this, kind, arena);
   }
   /** Convenience: `geos.point(1, 2)`. */
   point(x: number, y: number, z?: number, m?: number): Geometry {
@@ -717,5 +814,110 @@ export class Geos implements Disposable {
   }
   unaryUnionPrec(g: Geometry, gridSize: number, opts?: OpOptions): Geometry {
     return withSignal(this, opts?.signal, () => unaryUnionPrec(this, g, gridSize));
+  }
+
+  // ============================================================ Phase 3 ====
+  // Batch op layer (D22): ONE FFI call per array. Element-wise `*All` —
+  // result[i] = op(a, bs[i]) — with the D18 all-or-nothing contract.
+  // Inputs are `Geometry[]` or an Arrow-shaped value (normalized through the
+  // shim's bulk builders in a transient arena). There is deliberately no
+  // element-wise `unionAll(a, bs)`: the name is the Phase 2 aggregate (D20).
+
+  intersectionAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return intersectionAll(this, a, bs, opts);
+  }
+  differenceAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return differenceAll(this, a, bs, opts);
+  }
+  symDifferenceAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return symDifferenceAll(this, a, bs, opts);
+  }
+  intersectionPrecAll(
+    a: Geometry,
+    bs: BatchInput,
+    gridSize: number,
+    opts?: BatchOptions,
+  ): Geometry[] {
+    return intersectionPrecAll(this, a, bs, gridSize, opts);
+  }
+  differencePrecAll(
+    a: Geometry,
+    bs: BatchInput,
+    gridSize: number,
+    opts?: BatchOptions,
+  ): Geometry[] {
+    return differencePrecAll(this, a, bs, gridSize, opts);
+  }
+  symDifferencePrecAll(
+    a: Geometry,
+    bs: BatchInput,
+    gridSize: number,
+    opts?: BatchOptions,
+  ): Geometry[] {
+    return symDifferencePrecAll(this, a, bs, gridSize, opts);
+  }
+
+  /** Element-wise unprepared predicate masks (the mirror of `Prepared.*All`). */
+  intersectsAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Uint8Array {
+    return predicateAll(this, "intersects", a, bs, opts);
+  }
+  containsAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Uint8Array {
+    return predicateAll(this, "contains", a, bs, opts);
+  }
+  coveredByAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Uint8Array {
+    return predicateAll(this, "coveredBy", a, bs, opts);
+  }
+  coversAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Uint8Array {
+    return predicateAll(this, "covers", a, bs, opts);
+  }
+  crossesAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Uint8Array {
+    return predicateAll(this, "crosses", a, bs, opts);
+  }
+  disjointAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Uint8Array {
+    return predicateAll(this, "disjoint", a, bs, opts);
+  }
+  overlapsAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Uint8Array {
+    return predicateAll(this, "overlaps", a, bs, opts);
+  }
+  touchesAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Uint8Array {
+    return predicateAll(this, "touches", a, bs, opts);
+  }
+  withinAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Uint8Array {
+    return predicateAll(this, "within", a, bs, opts);
+  }
+  predicateAll(
+    pred: UnpreparedPredName,
+    a: Geometry,
+    bs: BatchInput,
+    opts?: BatchOptions,
+  ): Uint8Array {
+    return predicateAll(this, pred, a, bs, opts);
+  }
+
+  // Batch measures — one crossing per array (Float64Array out).
+  areaAll(gs: BatchInput, opts?: BatchOptions): Float64Array {
+    return areaAll(this, gs, opts);
+  }
+  lengthAll(gs: BatchInput, opts?: BatchOptions): Float64Array {
+    return lengthAll(this, gs, opts);
+  }
+  distanceAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Float64Array {
+    return distanceAll(this, a, bs, opts);
+  }
+  hausdorffAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Float64Array {
+    return hausdorffAll(this, a, bs, opts);
+  }
+  frechetAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Float64Array {
+    return frechetAll(this, a, bs, opts);
+  }
+
+  // Batch buffer — params built once, one crossing.
+  bufferAll(gs: BatchInput, distance: number, opts?: BufferAllOptions): Geometry[] {
+    return bufferAll(this, gs, distance, opts);
+  }
+
+  // Batch WKB ingest (io.md §4): n geometries from one buffer, one crossing.
+  fromWKBMany(wkb: Uint8Array, offsets: Uint32Array, opts?: FromWKBManyOptions): Geometry[] {
+    return fromWKBMany(this, wkb, offsets, opts);
   }
 }

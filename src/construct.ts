@@ -11,6 +11,7 @@
  * first coordinate; rings with fewer than 3 distinct positions are rejected.
  * Output (WKT/WKB/GeoJSON) preserves what GEOS holds.
  */
+import type { Arena } from "./arena.ts";
 import { GeosError } from "./errors.ts";
 import type { Geos } from "./geos.ts";
 import type { CollectionKind, FlatCoords, GeomPtr, GeoTypeId, Polygonal } from "./types.ts";
@@ -70,6 +71,7 @@ export function fromCoords(
   geos: Geos,
   spec: FlatCoords,
   kind: "point" | "linestring" = "linestring",
+  arena?: Arena,
 ): import("./geometry.ts").Geometry {
   if (kind === "point") {
     checkFlat(spec, "GEOSGeom_createPoint_r", 1, "point");
@@ -88,7 +90,7 @@ export function fromCoords(
       // GEOS has consumed it; do not destroy (double free).
       throw geos.fail("GEOSGeom_createPoint_r");
     }
-    return geos.take("GEOSGeom_createPoint_r", g as GeomPtr);
+    return geos.take("GEOSGeom_createPoint_r", g as GeomPtr, arena ?? undefined);
   }
   checkFlat(spec, "geos_shim_build_linestring", 2, "linestring");
   const g = geos.native.shim.geos_shim_build_linestring(
@@ -98,7 +100,7 @@ export function fromCoords(
     spec.hasZ ? 1 : 0,
     spec.hasM ? 1 : 0,
   );
-  return geos.take("geos_shim_build_linestring", g as GeomPtr | null);
+  return geos.take("geos_shim_build_linestring", g as GeomPtr | null, arena ?? undefined);
 }
 
 /**
@@ -365,23 +367,27 @@ export function fromParts(
 export type EmptyKind = CollectionKind | "point" | "linestring" | "polygon";
 
 /** Build a typed empty geometry (`POLYGON EMPTY` etc. — io.md §3). */
-export function empty(geos: Geos, kind: EmptyKind): import("./geometry.ts").Geometry {
+export function empty(
+  geos: Geos,
+  kind: EmptyKind,
+  arena?: Arena,
+): import("./geometry.ts").Geometry {
   switch (kind) {
     case "point": {
       const g = geos.native.geos.GEOSGeom_createEmptyPoint_r(geos.ctx);
-      return geos.take("GEOSGeom_createEmptyPoint_r", g as GeomPtr | null);
+      return geos.take("GEOSGeom_createEmptyPoint_r", g as GeomPtr | null, arena ?? undefined);
     }
     case "linestring": {
       const g = geos.native.geos.GEOSGeom_createEmptyLineString_r(geos.ctx);
-      return geos.take("GEOSGeom_createEmptyLineString_r", g as GeomPtr | null);
+      return geos.take("GEOSGeom_createEmptyLineString_r", g as GeomPtr | null, arena ?? undefined);
     }
     case "polygon": {
       const g = geos.native.geos.GEOSGeom_createEmptyPolygon_r(geos.ctx);
-      return geos.take("GEOSGeom_createEmptyPolygon_r", g as GeomPtr | null);
+      return geos.take("GEOSGeom_createEmptyPolygon_r", g as GeomPtr | null, arena ?? undefined);
     }
     default: {
       const g = geos.native.geos.GEOSGeom_createEmptyCollection_r(geos.ctx, collectionTypeId(kind));
-      return geos.take("GEOSGeom_createEmptyCollection_r", g as GeomPtr | null);
+      return geos.take("GEOSGeom_createEmptyCollection_r", g as GeomPtr | null, arena ?? undefined);
     }
   }
 }

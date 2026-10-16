@@ -13,7 +13,7 @@ export function geomPtrArray(geos: Geos, gs: readonly Geometry[], op: string): B
     const g = gs[i];
     if (g === undefined) throw new RangeError(`${op}: input[${i}] is undefined`);
     g.requireSame(geos);
-    arr[i] = BigInt(g.ptr);
+    arr[i] = g.bigint; // cached per wrapper (Phase 3) — no BigInt() per call
   }
   return arr;
 }

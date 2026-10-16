@@ -21,6 +21,10 @@ import type { Pointer } from "bun:ffi";
 import type { Geometry } from "../geometry.ts";
 import type { Geos } from "../geos.ts";
 import type { GeomPtr, StrTreePtr } from "../types.ts";
+import { PreparedPred } from "../types.ts";
+import type { Prepared } from "./prepared.ts";
+
+export type PreparedPredName = keyof typeof PreparedPred;
 
 export class STRtree implements Disposable {
   readonly geos: Geos;
@@ -159,6 +163,57 @@ export class STRtree implements Disposable {
     );
     if (r === -2) throw this.geos.fail("geos_shim_strtree_nearest");
     return r; // item id, or -1 (no answer)
+  }
+
+  /**
+   * Fused candidate + exact filter (api-surface §Spatial index "fused
+   * Phase-3 helper", Phase 3 D22): STRtree query and a prepared predicate
+   * evaluated IN ONE SHIM CROSSING — C collects candidates and compacts the
+   * matching ids; no per-candidate JS round trip (the `query()` + `filter`
+   * pattern minus the intermediate array).
+   *
+   * Returns the matching ids (`Int32Array`); candidates whose predicate is
+   * false are dropped. The `Prepared` must belong to this tree's context —
+   * the same foreign-context rule as any geometry use. When more ids match
+   * than the initial buffer holds, the filter re-runs once with a
+   * right-sized buffer (the `query()` contract).
+   */
+  queryFilter(env: Geometry, pg: Prepared, pred: PreparedPredName = "intersects"): Int32Array {
+    this.#assertOpen("queryFilter()");
+    env.requireSame(this.geos);
+    if (pg.geos !== this.geos) {
+      throw new TypeError(
+        "bun-geos: Prepared belongs to a different Geos context — geometries and prepared structures never cross contexts (D3/D11)",
+      );
+    }
+    if (pg.disposed) {
+      throw new TypeError("bun-geos: Prepared used after dispose (in queryFilter)");
+    }
+    if (this.#items.size === 0) return new Int32Array(0);
+    this.build();
+    const shim = this.geos.native.shim;
+    const run = (out: Int32Array): number =>
+      shim.geos_shim_strtree_query_prepared(
+        this.geos.shim,
+        this.#tree,
+        env.ptr,
+        pg.ptr,
+        PreparedPred[pred],
+        this.#table,
+        out,
+        out.length,
+      );
+    let out = new Int32Array(Math.max(32, Math.min(this.#items.size, 4096)));
+    let total = run(out);
+    if (total === -1) throw this.geos.fail("geos_shim_strtree_query_prepared");
+    if (total === -2) throw this.geos.fail("geos_shim_strtree_query_prepared (interrupted)");
+    if (total > out.length) {
+      out = new Int32Array(total);
+      total = run(out);
+      if (total === -1) throw this.geos.fail("geos_shim_strtree_query_prepared");
+      if (total === -2) throw this.geos.fail("geos_shim_strtree_query_prepared (interrupted)");
+    }
+    return total === out.length ? out : out.slice(0, total);
   }
 
   /** The geometry registered under `id` (throws on unknown ids). */

@@ -16,6 +16,7 @@
  *   throws; same for GeometryCollection (heterogeneous). Phase 5 adds null
  *   bitmaps and full spec conformance.
  */
+import type { Arena } from "../arena.ts";
 import { fromCoords, fromParts, fromPolygonal } from "../construct.ts";
 import { GeosError } from "../errors.ts";
 import type { Geometry } from "../geometry.ts";
@@ -37,6 +38,150 @@ function isPolygonal(a: ArrowArray): a is Polygonal {
 
 function isLineArray(a: ArrowArray): a is LineArray {
   return "lineOffsets" in a;
+}
+
+/**
+ * Phase 3 batch input normalization (api-surface Phase-2 note: "ArrowArray
+ * normalization lands with the Phase 3 batch layer"): expand one
+ * Arrow-shaped value into n SEPARATE geometries — the batch item array.
+ * Polygons/lines go through the shim's bulk builders (one crossing per
+ * array, D22); points build per-item (the cheapest builder).
+ *
+ * `arena` — where the built geometries register. Callers that dispose the
+ * batch inputs themselves (the pool's UNPUSHED arena,
+ * `withBatchInputsAsync`) MUST pass it explicitly: the default
+ * (`currentArena()`) would also register them into a caller's ambient arena
+ * when one is open — a double free at ambient close (audited N1).
+ *
+ * Empties follow the fromArrow convention: empty Polygonal → POLYGON EMPTY
+ * (a one-item batch), empty FlatCoords → an empty batch.
+ */
+export function geometriesFromArrow(geos: Geos, arr: ArrowArray, arena?: Arena): Geometry[] {
+  geos.assertOpen("geometriesFromArrow");
+  const op = "geometriesFromArrow";
+  const outArena = arena ?? undefined;
+  if (isPolygonal(arr)) {
+    const { coords, ringOffsets, partOffsets, hasZ, hasM } = arr;
+    if (ringOffsets.length === 0 || partOffsets.length === 0) {
+      if (coords.length > 0) {
+        throw new GeosError(op, "empty offsets but non-empty coords");
+      }
+      return [geos.empty("polygon", outArena)];
+    }
+    // Offset validation mirrors fromPolygonal (construct.ts): end-indices
+    // from 0, strictly increasing. The C builders take `const unsigned int*`
+    // — a negative JS number would wrap to ~4e9 and pass every C-side check,
+    // so the sign/monotonicity rule is enforced HERE, before any crossing
+    // (audited Risk 1).
+    let prevRing = 0;
+    for (let i = 0; i < ringOffsets.length; i++) {
+      const end = ringOffsets[i]!;
+      if (end <= prevRing) {
+        throw new GeosError(
+          op,
+          `ringOffsets must increase from 0 (ringOffsets[${i}] = ${end} <= ${prevRing})`,
+        );
+      }
+      prevRing = end;
+    }
+    let prevPart = 0;
+    for (let i = 0; i < partOffsets.length; i++) {
+      const end = partOffsets[i]!;
+      if (end <= prevPart) {
+        throw new GeosError(
+          op,
+          `partOffsets must increase from 1 (partOffsets[${i}] = ${end} <= ${prevPart})`,
+        );
+      }
+      prevPart = end;
+    }
+    if (partOffsets[partOffsets.length - 1]! !== ringOffsets.length) {
+      throw new GeosError(
+        op,
+        `partOffsets must end at the ring count (${partOffsets[partOffsets.length - 1]} != ${ringOffsets.length})`,
+      );
+    }
+    const stride = strideOf(hasZ, hasM);
+    const lastRing = ringOffsets[ringOffsets.length - 1]!;
+    if (lastRing * stride > coords.length) {
+      throw new GeosError(
+        op,
+        `coords length ${coords.length} < last ringOffset × stride (${lastRing} × ${stride})`,
+      );
+    }
+    const n = partOffsets.length;
+    const out = new BigUint64Array(n);
+    const r = geos.native.shim.geos_shim_build_polygonal_many(
+      geos.shim,
+      coords,
+      ringOffsets,
+      ringOffsets.length,
+      partOffsets,
+      n,
+      hasZ ? 1 : 0,
+      hasM ? 1 : 0,
+      out,
+    );
+    if (r !== 0) throw geos.fail("geos_shim_build_polygonal_many");
+    return geos.takeMany("geos_shim_build_polygonal_many", out, outArena);
+  }
+
+  if (isLineArray(arr)) {
+    const { coords, lineOffsets, hasZ, hasM } = arr;
+    if (lineOffsets.length === 0) {
+      throw new GeosError(op, "lineOffsets must not be empty", { jsonPath: "lineOffsets" });
+    }
+    // Same negative/monotonic rule as rings (audited Risk 1).
+    let prevLine = 0;
+    for (let i = 0; i < lineOffsets.length; i++) {
+      const end = lineOffsets[i]!;
+      if (end <= prevLine) {
+        throw new GeosError(
+          op,
+          `lineOffsets must increase from 0 (lineOffsets[${i}] = ${end} <= ${prevLine})`,
+        );
+      }
+      prevLine = end;
+    }
+    const stride = strideOf(hasZ, hasM);
+    const lastLine = lineOffsets[lineOffsets.length - 1]!;
+    if (lastLine * stride > coords.length) {
+      throw new GeosError(
+        op,
+        `coords length ${coords.length} < last lineOffset × stride (${lastLine} × ${stride})`,
+      );
+    }
+    const n = lineOffsets.length;
+    const out = new BigUint64Array(n);
+    const r = geos.native.shim.geos_shim_build_linestrings_many(
+      geos.shim,
+      coords,
+      lineOffsets,
+      n,
+      hasZ ? 1 : 0,
+      hasM ? 1 : 0,
+      out,
+    );
+    if (r !== 0) throw geos.fail("geos_shim_build_linestrings_many");
+    return geos.takeMany("geos_shim_build_linestrings_many", out, outArena);
+  }
+
+  // FlatCoords → one POINT per coordinate (n=0 → empty batch).
+  const { coords, n, hasZ, hasM } = arr;
+  const stride = strideOf(hasZ, hasM);
+  if (coords.length !== n * stride) {
+    throw new GeosError(op, `coords length ${coords.length} != n × stride (${n} × ${stride})`);
+  }
+  const points: Geometry[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    points[i] = fromCoords(
+      geos,
+      { coords: coords.subarray(i * stride, (i + 1) * stride), n: 1, hasZ, hasM },
+      "point",
+      outArena,
+    );
+  }
+  return points;
 }
 
 function strideOf(hasZ: boolean, hasM: boolean): number {

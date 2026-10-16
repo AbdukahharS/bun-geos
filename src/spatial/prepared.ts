@@ -13,8 +13,8 @@
 import { CString } from "bun:ffi";
 import type { Geometry } from "../geometry.ts";
 import type { Geos } from "../geos.ts";
-import type { OpOptions } from "../interrupt.ts";
-import { abortError, withSignal } from "../interrupt.ts";
+import { abortError, type OpOptions, withSignal } from "../interrupt.ts";
+import { type BatchInput, withBatchInputs } from "../ops/batch.ts";
 import { charResult } from "../ops/predicates.ts";
 import { geomPtrArray } from "../ptrs.ts";
 import type { GeomPtr, PreparedPtr } from "../types.ts";
@@ -176,80 +176,87 @@ export class Prepared implements Disposable {
    * message — no partial masks. Interrupt-aware between items: when a
    * signal was supplied, an interruption shapes as `op: "aborted"` — the
    * SAME contract as singular ops (audited inconsistency, fixed).
+   *
+   * Phase 3: `bs` also accepts an Arrow-shaped value, normalized through
+   * the shim's bulk builders inside a transient arena (D22).
    */
-  #all(name: PredName, bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
-    return withSignal(this.geos, opts?.signal, () => {
-      this.#assertOpen(PREPS[name].op);
-      const ptrs = geomPtrArray(this.geos, bs, `${PREPS[name].op} (batch)`);
-      const out = new Uint8Array(bs.length);
-      const r = this.geos.native.shim.geos_shim_prepared_pred_all(
-        this.geos.shim,
-        this.ptr,
-        PREPS[name].id,
-        ptrs,
-        bs.length,
-        out,
-      );
-      if (r !== 0) {
-        const underlying = this.geos.fail(PREPS[name].op);
-        if (r === 2 && opts?.signal !== undefined) throw abortError(opts.signal, underlying);
-        throw underlying;
-      }
-      return out;
-    });
+  #all(name: PredName, bs: BatchInput, opts?: OpOptions): Uint8Array {
+    return withSignal(this.geos, opts?.signal, () =>
+      withBatchInputs(this.geos, bs, PREPS[name].op, (gs) => {
+        this.#assertOpen(PREPS[name].op);
+        const ptrs = geomPtrArray(this.geos, gs, `${PREPS[name].op} (batch)`);
+        const out = new Uint8Array(gs.length);
+        const r = this.geos.native.shim.geos_shim_prepared_pred_all(
+          this.geos.shim,
+          this.ptr,
+          PREPS[name].id,
+          ptrs,
+          gs.length,
+          out,
+        );
+        if (r !== 0) {
+          const underlying = this.geos.fail(PREPS[name].op);
+          if (r === 2 && opts?.signal !== undefined) throw abortError(opts.signal, underlying);
+          throw underlying;
+        }
+        return out;
+      }),
+    );
   }
 
-  intersectsAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  intersectsAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("intersects", bs, opts);
   }
-  containsAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  containsAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("contains", bs, opts);
   }
-  containsProperlyAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  containsProperlyAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("containsProperly", bs, opts);
   }
-  coveredByAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  coveredByAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("coveredBy", bs, opts);
   }
-  coversAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  coversAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("covers", bs, opts);
   }
-  crossesAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  crossesAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("crosses", bs, opts);
   }
-  disjointAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  disjointAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("disjoint", bs, opts);
   }
-  overlapsAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  overlapsAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("overlaps", bs, opts);
   }
-  touchesAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  touchesAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("touches", bs, opts);
   }
-  withinAll(bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
+  withinAll(bs: BatchInput, opts?: OpOptions): Uint8Array {
     return this.#all("within", bs, opts);
   }
 
-  relatePatternAll(bs: readonly Geometry[], pattern: string, opts?: OpOptions): Uint8Array {
-    return withSignal(this.geos, opts?.signal, () => {
-      this.#assertOpen("GEOSPreparedRelatePattern_r");
-      const ptrs = geomPtrArray(this.geos, bs, "GEOSPreparedRelatePattern_r (batch)");
-      const out = new Uint8Array(bs.length);
-      const r = this.geos.native.shim.geos_shim_prepared_relate_pattern_all(
-        this.geos.shim,
-        this.ptr,
-        ptrs,
-        bs.length,
-        pattern,
-        out,
-      );
-      if (r !== 0) {
-        const underlying = this.geos.fail("GEOSPreparedRelatePattern_r");
-        if (r === 2 && opts?.signal !== undefined) throw abortError(opts.signal, underlying);
-        throw underlying;
-      }
-      return out;
-    });
+  relatePatternAll(bs: BatchInput, pattern: string, opts?: OpOptions): Uint8Array {
+    return withSignal(this.geos, opts?.signal, () =>
+      withBatchInputs(this.geos, bs, "GEOSPreparedRelatePattern_r", (gs) => {
+        this.#assertOpen("GEOSPreparedRelatePattern_r");
+        const ptrs = geomPtrArray(this.geos, gs, "GEOSPreparedRelatePattern_r (batch)");
+        const out = new Uint8Array(gs.length);
+        const r = this.geos.native.shim.geos_shim_prepared_relate_pattern_all(
+          this.geos.shim,
+          this.ptr,
+          ptrs,
+          gs.length,
+          pattern,
+          out,
+        );
+        if (r !== 0) {
+          const underlying = this.geos.fail("GEOSPreparedRelatePattern_r");
+          if (r === 2 && opts?.signal !== undefined) throw abortError(opts.signal, underlying);
+          throw underlying;
+        }
+        return out;
+      }),
+    );
   }
 
   // ---------------------------------------------------------------- disposal

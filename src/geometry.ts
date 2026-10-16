@@ -46,6 +46,13 @@ export class Geometry implements Disposable {
   #consumers: Set<object> | null = null;
   #hasZ: boolean | undefined;
   #hasM: boolean | undefined;
+  /**
+   * Cached bigint form of `ptr` (Phase 3): batch ops build `BigUint64Array`
+   * pointer arrays once per call — caching the conversion per wrapper makes
+   * repeated batch passes over the same inputs allocation-free. Strictly an
+   * FFI-marshaling cache; never use it in place of `ptr`.
+   */
+  #bigint: bigint | null = null;
 
   /** @internal — create via `Geos` factories (`geos.fromWKT`, ops, …). */
   constructor(
@@ -64,6 +71,12 @@ export class Geometry implements Disposable {
     this.#token = opts.token;
     this.#arena = opts.arena;
     this.#parentRef = opts.parent ? new WeakRef(opts.parent) : null;
+  }
+
+  /** @internal — bigint form of the pointer for FFI pointer arrays (cached). */
+  get bigint(): bigint {
+    if (this.#bigint === null) this.#bigint = BigInt(this.ptr);
+    return this.#bigint;
   }
 
   /** True once `[Symbol.dispose]()` has run. Use of a disposed geometry throws. */
