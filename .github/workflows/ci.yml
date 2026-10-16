@@ -1,7 +1,8 @@
 # CI: lint + typecheck + native build + full test suite + ASan shim gate,
 # plus the PostGIS oracle job (Phase 2 gate) and the nightly long-run soak +
 # manual benchmark publication (Phase 3 gates — testing.md §5).
-# Single ubuntu job (the 7-platform build/publish matrix stays Phase 4).
+# Phase 4: the 7-platform build/publish matrix lives in release.yml; this
+# workflow stays the single-ubuntu dev gate.
 name: ci
 
 on:
@@ -37,9 +38,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-                vendor/geos
+                build/geos-tarball.tar.bz2
+                build/geos-src
                 build/native/geos-install
-          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/build-native.ts') }}
+          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/native/lib.ts') }}
 
       - name: Build GEOS 3.14.1 + shim
         run: bun run build:native
@@ -84,9 +86,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-                vendor/geos
+                build/geos-tarball.tar.bz2
+                build/geos-src
                 build/native/geos-install
-          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/build-native.ts') }}
+          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/native/lib.ts') }}
 
       - name: Build GEOS 3.14.1 + shim
         run: bun run build:native
@@ -119,9 +122,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-                vendor/geos
+                build/geos-tarball.tar.bz2
+                build/geos-src
                 build/native/geos-install
-          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/build-native.ts') }}
+          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/native/lib.ts') }}
 
       - name: Build GEOS 3.14.1 + shim
         run: bun run build:native
@@ -151,9 +155,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-                vendor/geos
+                build/geos-tarball.tar.bz2
+                build/geos-src
                 build/native/geos-install
-          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/build-native.ts') }}
+          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/native/lib.ts') }}
 
       - name: Build GEOS 3.14.1 + shim
         run: bun run build:native

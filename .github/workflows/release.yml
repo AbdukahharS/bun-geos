@@ -1,0 +1,290 @@
+# Phase 4 release pipeline: the 7-platform build matrix + publish, in ONE
+# workflow file. The single file is deliberate (docs/operations/packaging.md
+# §5 + the runbook): npm trusted publishing validates the CALLING workflow's
+# filename, so when we switch from the granular token to OIDC later, the
+# publish job below is already bound to this exact file — the switch is a
+# permissions + config change, not a workflow redesign.
+#
+# Trigger: pushing a tag `v<version>` (release.ts requires a clean tree and
+# all 8 packages staged from these artifacts). Manual dispatch for retries.
+#
+# Publish auth today: NPM_TOKEN (granular, environment `release`). Later:
+# trusted publishing — see docs/operations/packaging.md §7 runbook.
+#
+# Alpine note: the musl builds run inside `docker run alpine` from the
+# ubuntu runner instead of `container:` jobs — GitHub's JS actions runtime
+# (glibc node) cannot execute inside a musl container, so a container: job
+# would fail before the first step could install anything.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: "1.4.3" # tested pin — docs/research/spike-results.md
+  ALPINE_IMAGE: alpine:3.20
+  GEOS_CACHE_PREFIX: geos-3.14.1
+
+jobs:
+  # ── Shared build steps (run INSIDE the matching platform) ─────────────
+  # Each job: deps → cached GEOS source → build for the target → stage the
+  # platform package → smoke it against the STAGED tree → licensing checks
+  # → upload as an artifact for the publish job.
+
+  build-linux:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64-gnu
+            os: ubuntu-24.04
+          - target: linux-arm64-gnu
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache GEOS build
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/geos-tarball.tar.bz2
+            build/geos-src
+            build/native/geos-install
+          key: ${{ env.GEOS_CACHE_PREFIX }}-${{ matrix.target }}-${{ hashFiles('scripts/native/lib.ts') }}
+
+      - name: Build GEOS + shim
+        run: bun run scripts/native/build-target.ts ${{ matrix.target }}
+
+      - name: Stage platform package
+        run: bun run scripts/package-platform.ts --target ${{ matrix.target }}
+
+      - name: Platform smoke against the STAGED package
+        env:
+          BUN_GEOS_PACKAGE_DIR: ${{ github.workspace }}/packages/@shzd/bun-geos-${{ matrix.target }}
+        run: bun run scripts/platform-smoke.ts
+
+      - name: Licensing spot checks
+        run: bun run scripts/native/licensing-check.ts ${{ matrix.target }}
+
+      - name: Upload staged package
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-pkg-${{ matrix.target }}
+          path: packages/@shzd/bun-geos-${{ matrix.target }}/
+
+  build-musl:
+    name: build ${{ matrix.target }} (alpine)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64-musl
+            os: ubuntu-24.04
+          - target: linux-arm64-musl
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache GEOS build
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/geos-tarball.tar.bz2
+            build/geos-src
+            build/native/geos-install
+          key: ${{ env.GEOS_CACHE_PREFIX }}-${{ matrix.target }}-${{ hashFiles('scripts/native/lib.ts') }}
+
+      # Everything (bun install, native build, staging, smoke, licensing
+      # checks) runs inside ONE alpine container with the workspace mounted —
+      # the artifacts are built by a REAL musl toolchain, not cross-compiled.
+      - name: Build + package + smoke inside alpine
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/w" -w /w \
+            ${{ env.ALPINE_IMAGE }} bash -e -u -o pipefail -c '
+            apk add --no-cache bash build-base cmake ninja curl git unzip nodejs npm binutils >/dev/null
+            curl -fsSL https://bun.sh/install | bash -s "bun-${{ env.BUN_VERSION }}" >/dev/null
+            export PATH="$HOME/.bun/bin:$PATH"
+            bun install --frozen-lockfile
+            bun run scripts/native/build-target.ts ${{ matrix.target }}
+            bun run scripts/package-platform.ts --target ${{ matrix.target }}
+            BUN_GEOS_PACKAGE_DIR="/w/packages/@shzd/bun-geos-${{ matrix.target }}" bun run scripts/platform-smoke.ts
+            bun run scripts/native/licensing-check.ts ${{ matrix.target }}
+            '
+
+      - name: Upload staged package
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-pkg-${{ matrix.target }}
+          path: packages/@shzd/bun-geos-${{ matrix.target }}/
+
+  build-darwin:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            os: macos-14
+          - target: darwin-x64
+            os: macos-13 # retirement watch: cross-on-arm + Rosetta is the documented fallback (runbook)
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: brew install ninja
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache GEOS build
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/geos-tarball.tar.bz2
+            build/geos-src
+            build/native/geos-install
+          key: ${{ env.GEOS_CACHE_PREFIX }}-${{ matrix.target }}-${{ hashFiles('scripts/native/lib.ts') }}
+
+      - name: Build GEOS + shim
+        run: bun run scripts/native/build-target.ts ${{ matrix.target }}
+
+      - name: Stage platform package
+        run: bun run scripts/package-platform.ts --target ${{ matrix.target }}
+
+      - name: Platform smoke against the STAGED package
+        env:
+          BUN_GEOS_PACKAGE_DIR: ${{ github.workspace }}/packages/@shzd/bun-geos-${{ matrix.target }}
+        run: bun run scripts/platform-smoke.ts
+
+      - name: Licensing spot checks
+        run: bun run scripts/native/licensing-check.ts ${{ matrix.target }}
+
+      - name: Upload staged package
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-pkg-${{ matrix.target }}
+          path: packages/@shzd/bun-geos-${{ matrix.target }}/
+
+  build-win32:
+    name: build win32-x64
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache GEOS build
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/geos-tarball.tar.bz2
+            build/geos-src
+            build/native/geos-install
+          key: ${{ env.GEOS_CACHE_PREFIX }}-win32-x64-${{ hashFiles('scripts/native/lib.ts') }}
+
+      # cl.exe on PATH for the shim link (/DEF: exports) and for CMake.
+      - name: MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build GEOS + shim
+        run: bun run scripts/native/build-target.ts win32-x64
+
+      - name: Stage platform package
+        run: bun run scripts/package-platform.ts --target win32-x64
+
+      - name: Platform smoke against the STAGED package
+        env:
+          BUN_GEOS_PACKAGE_DIR: ${{ github.workspace }}/packages/@shzd/bun-geos-win32-x64
+        run: bun run scripts/platform-smoke.ts
+
+      - name: Licensing spot checks
+        run: bun run scripts/native/licensing-check.ts win32-x64
+
+      - name: Upload staged package
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-pkg-win32-x64
+          path: packages/@shzd/bun-geos-win32-x64/
+
+  # ── Publish: platform packages → verify resolution → main ─────────────
+  publish:
+    name: publish ${{ github.ref_name }}
+    needs: [build-linux, build-musl, build-darwin, build-win32]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write # GitHub release notes
+      id-token: write # reserved for the trusted-publishing switch
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22" # npm ≥ 11.5.1 (also the OIDC-switch floor)
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download all staged platform packages
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/@shzd
+          pattern: platform-pkg-*
+
+      - name: Flatten artifacts into packages/@shzd/<name>
+        run: |
+          set -euo pipefail
+          for d in packages/@shzd/platform-pkg-*; do
+            target="${d##*platform-pkg-}"
+            pkg="packages/@shzd/bun-geos-${target}"
+            rm -rf "$pkg"
+            if [ -d "$d/bun-geos-${target}" ]; then
+              mv "$d/bun-geos-${target}" "$pkg"
+              rm -rf "$d"
+            else
+              mv "$d" "$pkg"
+            fi
+          done
+          ls -la packages/@shzd/
+
+      - name: Stage main package
+        run: bun run scripts/package-main.ts
+
+      - name: Publish (platforms → verify → main → GitHub release)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: bun run scripts/release.ts --auth token
