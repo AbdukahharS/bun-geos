@@ -1,3 +1,2 @@
-//! Phase 1 entrypoint: the public API barrel (src/index.ts re-exports) lands here.
-//! Until then this package is private and exports nothing.
-export {};
+//! @shzd/bun-geos public entrypoint — Phase 1 core.
+export * from "./src/index.ts";
