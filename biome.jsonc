@@ -43,7 +43,7 @@
   // their verdicts by design; src/ code may not log.
   "overrides": [
     {
-      "includes": ["spike/**"],
+      "includes": ["spike/**", "scripts/**"],
       "linter": {
         "rules": {
           "suspicious": {

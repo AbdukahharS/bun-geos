@@ -4,11 +4,14 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "build:native": "bun run scripts/build-native.ts",
     "typecheck": "bun check",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "test:spike": "bun test spike/"
+    "test": "bun test test/",
+    "test:spike": "bun test spike/",
+    "test:native": "gcc -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer test/native/shim_selftest.c build/native/shim.so -o build/native/shim_selftest -Wl,--disable-new-dtags -Wl,-rpath,$PWD/build/native && ./build/native/shim_selftest"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

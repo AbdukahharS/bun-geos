@@ -5,6 +5,9 @@ node_modules
 /vendor
 /spike/build
 
+# phase 1: dev native build tree (scripts/build-native.ts)
+/build
+
 # output
 out
 dist
