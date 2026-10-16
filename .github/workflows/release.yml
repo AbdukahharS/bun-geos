@@ -116,12 +116,15 @@ jobs:
       # Everything (bun install, native build, staging, smoke, licensing
       # checks) runs inside ONE alpine container with the workspace mounted —
       # the artifacts are built by a REAL musl toolchain, not cross-compiled.
+      # Entry is /bin/sh: alpine has no bash until apk installs it below.
       - name: Build + package + smoke inside alpine
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/w" -w /w \
-            ${{ env.ALPINE_IMAGE }} bash -e -u -o pipefail -c '
+            ${{ env.ALPINE_IMAGE }} sh -euc '
             apk add --no-cache bash build-base cmake ninja curl git unzip nodejs npm binutils >/dev/null
-            curl -fsSL https://bun.sh/install | bash -s "bun-${{ env.BUN_VERSION }}" >/dev/null
+            curl -fsSL -o /tmp/bun-install.sh https://bun.sh/install
+            # The installer expects the full release tag: bun-v1.4.3.
+            bash /tmp/bun-install.sh "bun-v${{ env.BUN_VERSION }}" >/dev/null
             export PATH="$HOME/.bun/bin:$PATH"
             bun install --frozen-lockfile
             bun run scripts/native/build-target.ts ${{ matrix.target }}

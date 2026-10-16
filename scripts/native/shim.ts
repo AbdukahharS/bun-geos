@@ -20,6 +20,7 @@ import {
   exists,
   GEOS_INSTALL,
   geosLibDir,
+  geosRuntimeDir,
   NATIVE_DIR,
   toolchainFor,
 } from "./lib.ts";
@@ -77,15 +78,15 @@ export async function buildAndStageShim(target: Target): Promise<StagedShim> {
   await $`bun run scripts/native/def.ts`;
   await compileShim(target);
 
-  const libDir = geosLibDir();
-
-  // libgeos_c → the package filename (copy+rename; SONAME matches).
+  // libgeos_c → the package filename (copy+rename; SONAME matches). The
+  // RUNTIME dir differs on Windows: DLLs live in bin/, import libs in lib/.
+  const runtimeDir = geosRuntimeDir(target.os);
   const builtC = geosCBuiltNames(target.os)
-    .map((n) => join(libDir, n))
+    .map((n) => join(runtimeDir, n))
     .find((p) => exists(p));
   if (!builtC) {
     throw new Error(
-      `shim: no libgeos_c in ${libDir} — looked for ${geosCBuiltNames(target.os).join(", ")}`,
+      `shim: no libgeos_c in ${runtimeDir} — looked for ${geosCBuiltNames(target.os).join(", ")}`,
     );
   }
   const geosCPath = join(BUILD_NATIVE, target.geosCFile);
@@ -93,12 +94,12 @@ export async function buildAndStageShim(target: Target): Promise<StagedShim> {
 
   // libgeos (the transitive dependency): discover the real file — its name
   // differs per platform (libgeos.so.3.14.1 / libgeos.3.14.1.dylib / geos.dll).
-  const geosName = readdirSync(libDir).find((n) => target.geosFileGlob.test(n));
+  const geosName = readdirSync(runtimeDir).find((n) => target.geosFileGlob.test(n));
   if (!geosName) {
-    throw new Error(`shim: no libgeos matching ${target.geosFileGlob} in ${libDir}`);
+    throw new Error(`shim: no libgeos matching ${target.geosFileGlob} in ${runtimeDir}`);
   }
   const geosPath = join(BUILD_NATIVE, geosName);
-  copyFileSync(join(libDir, geosName), geosPath);
+  copyFileSync(join(runtimeDir, geosName), geosPath);
 
   console.log(`shim: staged ${target.shimFile} + ${target.geosCFile} + ${geosName}`);
   return { shimPath: join(BUILD_NATIVE, target.shimFile), geosCPath, geosPath };

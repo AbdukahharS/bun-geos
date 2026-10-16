@@ -19,7 +19,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 import { Geos, GeosError } from "../index.ts";
 
 let failures = 0;
@@ -147,11 +147,13 @@ console.log(
 {
   const dir = mkdtempSync(join(tmpdir(), "geos-smoke-worker-"));
   const workerFile = join(dir, "worker.ts");
-  const indexTs = fileURLToPath(new URL("../index.ts", import.meta.url));
+  // A file URL, not a raw path: backslashes in a Windows import specifier
+  // would be parsed as escapes.
+  const indexUrl = JSON.stringify(pathToFileURL(join(import.meta.dir, "..", "index.ts")).href);
   writeFileSync(
     workerFile,
     [
-      `import { Geos } from ${JSON.stringify(indexTs)};`,
+      `import { Geos } from ${indexUrl};`,
       `using geos = new Geos();`,
       `const g = geos.fromWKT("POLYGON ((0 0, 4 0, 4 2, 0 2, 0 0))");`,
       `const a = geos.area(g);`,

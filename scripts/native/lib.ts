@@ -180,3 +180,12 @@ export function toolchainFor(target: Target): Toolchain {
 export function geosLibDir(): string {
   return join(GEOS_INSTALL, "lib");
 }
+
+/**
+ * Directory holding the RUNTIME libraries (DLLs) in the GEOS install tree.
+ * Windows CMake installs DLLs to bin/ and import libs to lib/; ELF/Mach-O
+ * platforms put everything in lib/.
+ */
+export function geosRuntimeDir(os: Target["os"]): string {
+  return os === "win32" ? join(GEOS_INSTALL, "bin") : geosLibDir();
+}

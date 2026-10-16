@@ -107,21 +107,24 @@ jobs:
 
       # One container, three package managers. The glibc/musl pair installs
       # together under bun (F2) and singly under npm — both paths asserted.
+      # Entry is /bin/sh: alpine has no bash until apk installs it below.
       - name: Install + overlay (timed, inside alpine)
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/w" -w /w \
-            ${{ env.ALPINE_IMAGE }} bash -e -u -o pipefail -c '
+            ${{ env.ALPINE_IMAGE }} sh -euc '
             V="${{ steps.ver.outputs.version }}"
             BUDGET=${{ env.BUDGET_SECONDS }}
             apk add --no-cache bash curl unzip nodejs npm >/dev/null
             npm install -g pnpm@10 >/dev/null 2>&1
-            curl -fsSL https://bun.sh/install | bash -s "bun-${{ env.BUN_VERSION }}" >/dev/null
+            curl -fsSL -o /tmp/bun-install.sh https://bun.sh/install
+            # The installer expects the full release tag: bun-v1.4.3.
+            bash /tmp/bun-install.sh "bun-v${{ env.BUN_VERSION }}" >/dev/null
             export PATH="$HOME/.bun/bin:$PATH"
 
             for PM in bun npm pnpm; do
               DIR=$(mktemp -d); cd "$DIR"
               echo "{\"name\":\"probe\",\"private\":true}" > package.json
-              START=$(date +%s%3N)
+              START=$(date +%s)
               case "$PM" in
                 bun)  bun add "@shzd/bun-geos@$V" ;;
                 npm)  npm install "@shzd/bun-geos@$V" --no-audit --no-fund ;;
@@ -129,11 +132,11 @@ jobs:
               esac
               cp /w/scripts/install-overlay.ts .
               bun run install-overlay.ts
-              END=$(date +%s%3N)
-              MS=$((END - START))
-              echo "alpine/$PM: ${MS} ms"
-              if [ "$MS" -gt $((BUDGET * 1000)) ]; then
-                echo "OVER BUDGET ($PM): ${MS}ms" >&2; exit 1
+              END=$(date +%s)
+              SECS=$((END - START))
+              echo "alpine/$PM: ${SECS}s"
+              if [ "$SECS" -gt "$BUDGET" ]; then
+                echo "OVER BUDGET ($PM): ${SECS}s > ${BUDGET}s" >&2; exit 1
               fi
             done
             echo "alpine install matrix: PASS"
