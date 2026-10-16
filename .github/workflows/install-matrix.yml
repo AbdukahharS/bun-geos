@@ -1,0 +1,184 @@
+# Phase 4 install matrix (testing.md §5: bun/npm/pnpm; glibc/musl) — the
+# ROADMAP exit criterion, mechanized: on a clean machine (macOS arm64,
+# Ubuntu 24.04, Alpine, Windows) `bun add @shzd/bun-geos` (or npm/pnpm) and
+# an overlay must work in < 60 s total, with no other installs.
+#
+# Runs: manually (version input; defaults to latest on the registry), or
+# automatically after a successful `release` run.
+#
+# The consumer project is a FRESH temp dir — the overlay always exercises
+# the package from node_modules, never the checkout.
+
+name: install-matrix
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "@shzd/bun-geos version to verify (blank = latest)"
+        required: false
+        default: ""
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+
+env:
+  BUN_VERSION: "1.4.3"
+  ALPINE_IMAGE: alpine:3.20
+  BUDGET_SECONDS: "60" # ROADMAP Phase 4 exit criterion
+
+jobs:
+  install:
+    name: ${{ matrix.os }} / ${{ matrix.pm }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04, windows-2022]
+        pm: [bun, npm, pnpm]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - uses: actions/setup-node@v4
+        if: matrix.pm != 'bun'
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        if: matrix.pm == 'pnpm'
+        run: npm install -g pnpm@10
+
+      - name: Resolve version
+        id: ver
+        run: |
+          V="${{ inputs.version || github.event.inputs.version }}"
+          if [ -z "$V" ]; then V=$(npm view @shzd/bun-geos version); fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "verifying @shzd/bun-geos@$V on ${{ matrix.os }} / ${{ matrix.pm }}"
+
+      - name: Install + overlay (timed)
+        id: run
+        run: |
+          set -euo pipefail
+          START=$(date +%s%3N)
+          DIR=$(mktemp -d)
+          cd "$DIR"
+          echo '{"name":"probe","private":true}' > package.json
+          case "${{ matrix.pm }}" in
+            bun)  bun add "@shzd/bun-geos@${{ steps.ver.outputs.version }}" ;;
+            npm)  npm install "@shzd/bun-geos@${{ steps.ver.outputs.version }}" ;;
+            pnpm) pnpm add "@shzd/bun-geos@${{ steps.ver.outputs.version }}" ;;
+          esac
+          cp "${{ github.workspace }}/scripts/install-overlay.ts" .
+          bun run install-overlay.ts
+          END=$(date +%s%3N)
+          MS=$((END - START))
+          echo "ms=$MS" >> "$GITHUB_OUTPUT"
+          echo "install+overlay took ${MS} ms on ${{ matrix.os }} / ${{ matrix.pm }}"
+          if [ "$MS" -gt $((BUDGET_SECONDS * 1000)) ]; then
+            echo "OVER BUDGET: ${MS}ms > ${BUDGET_SECONDS}s" >&2
+            exit 1
+          fi
+
+      - name: Record timing
+        run: echo "| ${{ matrix.os }} | ${{ matrix.pm }} | ${{ steps.run.outputs.ms }} ms | ok |" >> "$GITHUB_STEP_SUMMARY"
+
+  alpine:
+    name: alpine:3.20 (musl) / bun+npm+pnpm
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          V="${{ inputs.version || github.event.inputs.version }}"
+          if [ -z "$V" ]; then V=$(npm view @shzd/bun-geos version); fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      # One container, three package managers. The glibc/musl pair installs
+      # together under bun (F2) and singly under npm — both paths asserted.
+      - name: Install + overlay (timed, inside alpine)
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/w" -w /w \
+            ${{ env.ALPINE_IMAGE }} bash -e -u -o pipefail -c '
+            V="${{ steps.ver.outputs.version }}"
+            BUDGET=${{ env.BUDGET_SECONDS }}
+            apk add --no-cache bash curl unzip nodejs npm >/dev/null
+            npm install -g pnpm@10 >/dev/null 2>&1
+            curl -fsSL https://bun.sh/install | bash -s "bun-${{ env.BUN_VERSION }}" >/dev/null
+            export PATH="$HOME/.bun/bin:$PATH"
+
+            for PM in bun npm pnpm; do
+              DIR=$(mktemp -d); cd "$DIR"
+              echo "{\"name\":\"probe\",\"private\":true}" > package.json
+              START=$(date +%s%3N)
+              case "$PM" in
+                bun)  bun add "@shzd/bun-geos@$V" ;;
+                npm)  npm install "@shzd/bun-geos@$V" --no-audit --no-fund ;;
+                pnpm) pnpm add "@shzd/bun-geos@$V" ;;
+              esac
+              cp /w/scripts/install-overlay.ts .
+              bun run install-overlay.ts
+              END=$(date +%s%3N)
+              MS=$((END - START))
+              echo "alpine/$PM: ${MS} ms"
+              if [ "$MS" -gt $((BUDGET * 1000)) ]; then
+                echo "OVER BUDGET ($PM): ${MS}ms" >&2; exit 1
+              fi
+            done
+            echo "alpine install matrix: PASS"
+            '
+
+  # Consumption modes from packaging.md §6 — one extra probe job.
+  consumption:
+    name: consumption modes (ubuntu)
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Resolve version
+        id: ver
+        run: |
+          V="${{ inputs.version || github.event.inputs.version }}"
+          if [ -z "$V" ]; then V=$(npm view @shzd/bun-geos version); fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: BUN_GEOS_LIBRARY version mismatch must hard-fail (D8)
+        run: |
+          set -euo pipefail
+          DIR=$(mktemp -d); cd "$DIR"
+          echo '{"name":"probe","private":true}' > package.json
+          bun add "@shzd/bun-geos@${{ steps.ver.outputs.version }}"
+          # Point at a nonexistent/foreign libgeos_c: the loader must fail loudly.
+          echo "intentionally-bogus" > fake.so
+          if BUN_GEOS_LIBRARY="$DIR/fake.so" bun -e 'import("@shzd/bun-geos").then(m => new m.Geos())' 2>/dev/null; then
+            echo "expected a hard failure on version-mismatched BUN_GEOS_LIBRARY" >&2
+            exit 1
+          fi
+          echo "mismatch hard-fail: ok"
+
+      - name: bun build --compile embedding (packaging.md §6, #40076 watch)
+        run: |
+          set -euo pipefail
+          DIR=$(mktemp -d); cd "$DIR"
+          echo '{"name":"probe","private":true}' > package.json
+          bun add "@shzd/bun-geos@${{ steps.ver.outputs.version }}"
+          cp "${{ github.workspace }}/scripts/install-overlay.ts" .
+          bun build --compile install-overlay.ts --outfile probe
+          ./probe
+          echo "compile embedding: ok (note: this Bun may leak one .bun-*.so in TMPDIR — #40076, documented per release)"
