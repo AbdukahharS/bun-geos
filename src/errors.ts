@@ -13,18 +13,43 @@ export interface GeosErrorDetail {
   jsonPath?: string;
 }
 
+/**
+ * Repair-op diagnostics (D21): the invalidity details of a failed repair /
+ * strict op, as STRINGS — an exception must not own C resources (a geometry
+ * field on a thrown error is a disposal footgun). `locationWKT` is the
+ * `GEOSisValidDetail_r` location, `simpleLocationsWKT` the
+ * `GEOSisSimpleDetail_r` MULTIPOINT of non-simple nodes (WKT).
+ */
+export interface GeosErrorDiagnostics {
+  validReason?: string;
+  locationWKT?: string;
+  simpleLocationsWKT?: string;
+}
+
 export class GeosError extends Error {
   readonly op: string;
   readonly geosMessage?: string;
   readonly detail?: GeosErrorDetail;
+  readonly diagnostics?: GeosErrorDiagnostics;
 
-  constructor(op: string, geosMessage?: string, detail?: GeosErrorDetail) {
+  constructor(
+    op: string,
+    geosMessage?: string,
+    detail?: GeosErrorDetail,
+    opts?: { cause?: unknown; diagnostics?: GeosErrorDiagnostics },
+  ) {
     const msg = geosMessage ? `GEOS ${op} failed: ${geosMessage}` : `GEOS ${op} failed`;
-    super(detail ? `${msg} (${formatDetail(detail)})` : msg);
+    // Only install an error `cause` when one was given — `{ cause: undefined }`
+    // would add a meaningless own property to every GeosError.
+    super(
+      detail ? `${msg} (${formatDetail(detail)})` : msg,
+      opts?.cause !== undefined ? { cause: opts.cause } : undefined,
+    );
     this.name = "GeosError";
     this.op = op;
     if (geosMessage !== undefined) this.geosMessage = geosMessage;
     if (detail !== undefined) this.detail = detail;
+    if (opts?.diagnostics !== undefined) this.diagnostics = opts.diagnostics;
   }
 }
 

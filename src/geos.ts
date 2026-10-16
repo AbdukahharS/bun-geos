@@ -23,6 +23,7 @@ import {
 } from "./construct.ts";
 import { GeosError, lastError } from "./errors.ts";
 import { Geometry } from "./geometry.ts";
+import { type OpOptions, withSignal } from "./interrupt.ts";
 import { fromArrow, toArrow } from "./io/arrow.ts";
 import { fromGeoJSON, toGeoJSON } from "./io/geojson.ts";
 import { fromWKB, toWKB, type WKBOptions } from "./io/wkb.ts";
@@ -45,8 +46,35 @@ import {
   sridOf,
 } from "./ops/accessors.ts";
 import { type BufferOptions, buffer } from "./ops/buffer.ts";
+import {
+  type CoverageCleanOptions,
+  type CoverageIsValidOptions,
+  type CoverageSimplifyOptions,
+  coverageClean,
+  coverageIsValid,
+  coverageSimplifyVW,
+} from "./ops/coverage.ts";
 import { area, distance, frechet, hausdorff, length } from "./ops/measure.ts";
-import { difference, intersection, symDifference, unaryUnion, union } from "./ops/overlay.ts";
+import {
+  coverageUnion,
+  difference,
+  intersection,
+  symDifference,
+  type UnionAllOptions,
+  unaryUnion,
+  union,
+  unionAll,
+} from "./ops/overlay.ts";
+import {
+  differencePrec,
+  getPrecision,
+  intersectionPrec,
+  type SetPrecisionOptions,
+  setPrecision,
+  symDifferencePrec,
+  unaryUnionPrec,
+  unionPrec,
+} from "./ops/precision.ts";
 import {
   contains,
   coveredBy,
@@ -62,14 +90,26 @@ import {
   touches,
   within,
 } from "./ops/predicates.ts";
+import {
+  isSimpleDetail,
+  isValidDetail,
+  type MakeValidOptions,
+  makeValid,
+  orientPolygons,
+  type SimpleDetail,
+  type ValidityDetail,
+} from "./ops/repair.ts";
+import { STRtree } from "./spatial/strtree.ts";
 import type { Native } from "./symbols.ts";
 import type {
   ArrowArray,
   CollectionKind,
+  CoverageCleanParamsPtr,
   FlatCoords,
   GeomPtr,
   GeosCtx,
   GeoTypeId,
+  MakeValidParamsPtr,
   Polygonal,
   ShimPtr,
   WkbReaderPtr,
@@ -128,6 +168,14 @@ export class Geos implements Disposable {
   /** Pooled WKT/WKB readers (stateless; memory.md §2: pooled per `Geos`). */
   #wktReader: WktReaderPtr | null = null;
   #wkbReader: WkbReaderPtr | null = null;
+  /** Pooled repair params objects (values re-set per call; D21). */
+  #makeValidParams: MakeValidParamsPtr | null = null;
+  #coverageCleanParams: CoverageCleanParamsPtr | null = null;
+  /**
+   * Consumer objects that reference context memory and MUST be disposed
+   * before the context tears down (D17): `Prepared`, `STRtree`.
+   */
+  readonly #consumables: Disposable[] = [];
   readonly #registry = new FinalizationRegistry<FinalizerPayload>((payload) => {
     payload.geos.#reap(payload);
   });
@@ -188,7 +236,7 @@ export class Geos implements Disposable {
     return this.#wktReader;
   }
 
-  /** @internal — pooled WKB reader. */
+  /** @internal */
   wkbReader(): WkbReaderPtr {
     this.assertOpen("wkbReader()");
     if (this.#wkbReader === null) {
@@ -199,7 +247,41 @@ export class Geos implements Disposable {
     return this.#wkbReader;
   }
 
-  /** @internal */
+  /** @internal — pooled GEOSMakeValidParams (values re-set per makeValid call). */
+  makeValidParams(): MakeValidParamsPtr {
+    this.assertOpen("makeValidParams()");
+    if (this.#makeValidParams === null) {
+      const p = this.native.geos.GEOSMakeValidParams_create_r(this.ctx);
+      if (p === null) throw this.fail("GEOSMakeValidParams_create_r");
+      this.#makeValidParams = p as MakeValidParamsPtr;
+    }
+    return this.#makeValidParams;
+  }
+
+  /** @internal — pooled GEOSCoverageCleanParams (values re-set per call). */
+  coverageCleanParams(): CoverageCleanParamsPtr {
+    this.assertOpen("coverageCleanParams()");
+    if (this.#coverageCleanParams === null) {
+      const p = this.native.geos.GEOSCoverageCleanParams_create_r(this.ctx);
+      if (p === null) throw this.fail("GEOSCoverageCleanParams_create_r");
+      this.#coverageCleanParams = p as CoverageCleanParamsPtr;
+    }
+    return this.#coverageCleanParams;
+  }
+
+  /**
+   * @internal — register a Prepared/STRtree consumer: disposed before the
+   * context tears down, so its C object never outlives the context (D17).
+   */
+  registerConsumable(consumable: Disposable): void {
+    this.#consumables.push(consumable);
+  }
+
+  /** @internal — the consumer disposed itself; drop it from the teardown list. */
+  unregisterConsumable(consumable: Disposable): void {
+    const i = this.#consumables.indexOf(consumable);
+    if (i >= 0) this.#consumables.splice(i, 1);
+  }
 
   /** @internal */
   assertOpen(what: string): void {
@@ -335,6 +417,10 @@ export class Geos implements Disposable {
   [Symbol.dispose](): void {
     if (this.#disposed) return;
     this.#disposed = true;
+    // Consumers first (D17): Prepared/STRtree objects hold raw pointers into
+    // this context — they must release (and unpin) before any geometry is
+    // freed. Their dispose calls unregisterConsumable → iterate a copy.
+    for (const c of [...this.#consumables]) c[Symbol.dispose]();
     for (const arena of [...this.#arenaStack].reverse()) arena[Symbol.dispose]();
     if (this.#live.size > 0) {
       const rest = [...this.#live.keys()];
@@ -350,6 +436,14 @@ export class Geos implements Disposable {
     if (this.#wkbReader !== null) {
       this.native.geos.GEOSWKBReader_destroy_r(this.ctx, this.#wkbReader);
       this.#wkbReader = null;
+    }
+    if (this.#makeValidParams !== null) {
+      this.native.geos.GEOSMakeValidParams_destroy_r(this.ctx, this.#makeValidParams);
+      this.#makeValidParams = null;
+    }
+    if (this.#coverageCleanParams !== null) {
+      this.native.geos.GEOSCoverageCleanParams_destroy_r(this.ctx, this.#coverageCleanParams);
+      this.#coverageCleanParams = null;
     }
     this.native.shim.geos_shim_finish(this.shim);
   }
@@ -454,26 +548,32 @@ export class Geos implements Disposable {
     return relateMatrix(this, a, b);
   }
 
-  // Overlays & boolean ops
-  intersection(a: Geometry, b: Geometry): Geometry {
-    return intersection(this, a, b);
+  // Overlays & boolean ops (long ops accept `{ signal }` — D19)
+  intersection(a: Geometry, b: Geometry, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => intersection(this, a, b));
   }
-  union(a: Geometry, b: Geometry): Geometry {
-    return union(this, a, b);
+  union(a: Geometry, b: Geometry, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => union(this, a, b));
   }
-  difference(a: Geometry, b: Geometry): Geometry {
-    return difference(this, a, b);
+  difference(a: Geometry, b: Geometry, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => difference(this, a, b));
   }
-  symDifference(a: Geometry, b: Geometry): Geometry {
-    return symDifference(this, a, b);
+  symDifference(a: Geometry, b: Geometry, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => symDifference(this, a, b));
   }
-  unaryUnion(g: Geometry): Geometry {
-    return unaryUnion(this, g);
+  unaryUnion(g: Geometry, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => unaryUnion(this, g));
+  }
+  unionAll(gs: readonly Geometry[], opts?: UnionAllOptions): Geometry {
+    return withSignal(this, opts?.signal, () => unionAll(this, gs, opts));
+  }
+  coverageUnion(gs: readonly Geometry[], opts?: { arena?: Arena }): Geometry {
+    return coverageUnion(this, gs, opts);
   }
 
   // Buffer & measures
   buffer(g: Geometry, distance: number, opts?: BufferOptions): Geometry {
-    return buffer(this, g, distance, opts);
+    return withSignal(this, opts?.signal, () => buffer(this, g, distance, opts));
   }
   area(g: Geometry): number {
     return area(this, g);
@@ -533,5 +633,81 @@ export class Geos implements Disposable {
   }
   setSrid(g: Geometry, srid: number | null): void {
     setSrid(this, g, srid);
+  }
+
+  // ============================================================ Phase 2 ====
+
+  // Interrupt (D19): the low-level, thread-safe flag controls. `{ signal }`
+  // on individual ops is the structured path (see interrupt.ts for the
+  // same-thread honesty note).
+  interruptRequest(): void {
+    this.assertOpen("interruptRequest()");
+    this.native.shim.geos_shim_interrupt_request();
+  }
+  interruptReset(): void {
+    this.native.shim.geos_shim_interrupt_reset();
+  }
+
+  // Spatial index (api-surface §Spatial index)
+  strtree(geoms?: readonly Geometry[], nodeCapacity = 10): STRtree {
+    this.assertOpen("strtree()");
+    const tree = new STRtree(this, nodeCapacity);
+    if (geoms !== undefined) {
+      for (const g of geoms) tree.insert(g);
+    }
+    return tree;
+  }
+
+  // Topology repair (api-surface §Topology repair)
+  makeValid(g: Geometry, opts?: MakeValidOptions & OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => makeValid(this, g, opts));
+  }
+  isValidDetail(g: Geometry): ValidityDetail {
+    return isValidDetail(this, g);
+  }
+  isSimpleDetail(g: Geometry, opts?: { findAll?: boolean }): SimpleDetail {
+    return isSimpleDetail(this, g, opts);
+  }
+  coverageIsValid(
+    gs: readonly Geometry[],
+    opts?: CoverageIsValidOptions & OpOptions,
+  ): ReturnType<typeof coverageIsValid> {
+    return withSignal(this, opts?.signal, () => coverageIsValid(this, gs, opts));
+  }
+  coverageClean(gs: readonly Geometry[], opts?: CoverageCleanOptions & OpOptions): Geometry[] {
+    return withSignal(this, opts?.signal, () => coverageClean(this, gs, opts));
+  }
+  coverageSimplifyVW(
+    gs: readonly Geometry[],
+    tolerance: number,
+    opts?: CoverageSimplifyOptions & OpOptions,
+  ): Geometry[] {
+    return withSignal(this, opts?.signal, () => coverageSimplifyVW(this, gs, tolerance, opts));
+  }
+  orientPolygons(g: Geometry, dir?: "ccw" | "cw"): Geometry {
+    return orientPolygons(this, g, dir);
+  }
+
+  // Precision model (api-surface §Overlays)
+  setPrecision(g: Geometry, gridSize: number, opts?: SetPrecisionOptions & OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => setPrecision(this, g, gridSize, opts));
+  }
+  getPrecision(g: Geometry): number {
+    return getPrecision(this, g);
+  }
+  intersectionPrec(a: Geometry, b: Geometry, gridSize: number, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => intersectionPrec(this, a, b, gridSize));
+  }
+  unionPrec(a: Geometry, b: Geometry, gridSize: number, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => unionPrec(this, a, b, gridSize));
+  }
+  differencePrec(a: Geometry, b: Geometry, gridSize: number, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => differencePrec(this, a, b, gridSize));
+  }
+  symDifferencePrec(a: Geometry, b: Geometry, gridSize: number, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => symDifferencePrec(this, a, b, gridSize));
+  }
+  unaryUnionPrec(g: Geometry, gridSize: number, opts?: OpOptions): Geometry {
+    return withSignal(this, opts?.signal, () => unaryUnionPrec(this, g, gridSize));
   }
 }

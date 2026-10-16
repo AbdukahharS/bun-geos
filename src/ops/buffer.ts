@@ -17,6 +17,8 @@ export interface BufferOptions {
   mitreLimit?: number;
   /** Single-sided buffer (positive = left side). Default false. */
   singleSided?: boolean;
+  /** Cooperative cancellation (D19). */
+  signal?: AbortSignal;
 }
 
 // geos_c.h enums

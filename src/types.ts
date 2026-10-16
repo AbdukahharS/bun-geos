@@ -19,6 +19,10 @@ declare const __wktWriter: unique symbol;
 declare const __wkbReader: unique symbol;
 declare const __wkbWriter: unique symbol;
 declare const __bufferParams: unique symbol;
+declare const __prepared: unique symbol;
+declare const __strtree: unique symbol;
+declare const __makeValidParams: unique symbol;
+declare const __coverageCleanParams: unique symbol;
 declare const __ownedStr: unique symbol;
 
 /** `GEOSContextHandle_t` — pass to every `geos_c` `_r` function. */
@@ -37,6 +41,16 @@ export type WkbReaderPtr = Pointer & { readonly [__wkbReader]: "GEOSWKBReader" }
 export type WkbWriterPtr = Pointer & { readonly [__wkbWriter]: "GEOSWKBWriter" };
 /** `GEOSBufferParams*` — created per buffer call, always destroyed. */
 export type BufferParamsPtr = Pointer & { readonly [__bufferParams]: "GEOSBufferParams" };
+/** `const GEOSPreparedGeometry*` — indexed predicate structure (3.13 RelateNG). */
+export type PreparedPtr = Pointer & { readonly [__prepared]: "GEOSPreparedGeometry" };
+/** `GEOSSTRtree*` — items are integer ids (D16), never geometry pointers. */
+export type StrTreePtr = Pointer & { readonly [__strtree]: "GEOSSTRtree" };
+/** `GEOSMakeValidParams*` — pooled per `Geos`, values re-set per call. */
+export type MakeValidParamsPtr = Pointer & { readonly [__makeValidParams]: "GEOSMakeValidParams" };
+/** `GEOSCoverageCleanParams*` — pooled per `Geos` (3.14). */
+export type CoverageCleanParamsPtr = Pointer & {
+  readonly [__coverageCleanParams]: "GEOSCoverageCleanParams";
+};
 /** A GEOS-owned `char*` awaiting `GEOSFree_r`. Never escape one from a helper. */
 export type OwnedStrPtr = Pointer & { readonly [__ownedStr]: "GEOSFree me" };
 
@@ -134,3 +148,46 @@ export type ByteOrder = "little" | "big";
 export function byteOrderToId(order: ByteOrder): number {
   return order === "big" ? 0 : 1; // GEOS_WKB_XDR / GEOS_WKB_NDR
 }
+
+/* ===================== Phase 2 (ROADMAP: differentiators) ===================== */
+
+/** `GEOSMakeValidMethods` enum values (geos_c.h). */
+export const MakeValidMethod = { linework: 0, structure: 1 } as const;
+export type MakeValidMethod = (typeof MakeValidMethod)[keyof typeof MakeValidMethod];
+
+/** `GEOSPrecisionRules` enum values (geos_c.h). */
+export const PrecisionMode = { validOutput: 0, noTopo: 1, keepCollapsed: 2 } as const;
+export type PrecisionMode = (typeof PrecisionMode)[keyof typeof PrecisionMode];
+
+/** `GEOSOverlapMerge` enum values (geos_c.h, 3.14 CoverageClean). */
+export const OverlapMergeStrategy = {
+  longestBorder: 0,
+  maxArea: 1,
+  minArea: 2,
+  minIndex: 3,
+} as const;
+export type OverlapMergeStrategy = (typeof OverlapMergeStrategy)[keyof typeof OverlapMergeStrategy];
+
+/**
+ * Prepared predicate ids — the `predId` argument of
+ * `geos_shim_prepared_pred_all`. MUST match the shim's `SHIM_PREP_*` enum
+ * (native/shim.c): a mismatch is a silent wrong-predicate bug, so the
+ * selftest pins every id against a known-answer pair.
+ */
+export const PreparedPred = {
+  intersects: 0,
+  contains: 1,
+  containsProperly: 2,
+  coveredBy: 3,
+  covers: 4,
+  crosses: 5,
+  disjoint: 6,
+  overlaps: 7,
+  touches: 8,
+  within: 9,
+} as const;
+export type PreparedPred = (typeof PreparedPred)[keyof typeof PreparedPred];
+
+/** `geos_shim_union_all` strategy ids — MUST match `SHIM_UNION_*` in the shim. */
+export const UnionStrategy = { auto: 0, coverage: 1, disjointSubset: 2, unary: 3 } as const;
+export type UnionStrategy = (typeof UnionStrategy)[keyof typeof UnionStrategy];

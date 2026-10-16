@@ -38,6 +38,28 @@ const SHIM_TABLE = {
   geos_shim_build_polygon: { args: ["ptr", "ptr", "ptr", "u32", "i32", "i32"], returns: "ptr" },
   geos_shim_build_collection: { args: ["ptr", "i32", "ptr", "u32"], returns: "ptr" },
   geos_shim_destroy_many: { args: ["ptr", "ptr", "u32"], returns: "void" },
+
+  // Phase 2 (D16–D21): interrupt, bulk clones, union dispatch, prepared
+  // batch masks, STRtree query/nearest collection.
+  geos_shim_interrupt_request: { args: [], returns: "void" },
+  geos_shim_interrupt_reset: { args: [], returns: "void" },
+  geos_shim_clone_many: { args: ["ptr", "ptr", "u32", "ptr"], returns: "i32" },
+  geos_shim_clone_collect: { args: ["ptr", "ptr", "u32"], returns: "ptr" },
+  geos_shim_clone_members: { args: ["ptr", "ptr", "ptr", "u32"], returns: "i32" },
+  geos_shim_union_all: { args: ["ptr", "ptr", "u32", "i32"], returns: "ptr" },
+  geos_shim_coverage_union: { args: ["ptr", "ptr", "u32"], returns: "ptr" },
+  geos_shim_prepared_pred_all: { args: ["ptr", "ptr", "i32", "ptr", "u32", "ptr"], returns: "i32" },
+  geos_shim_prepared_relate_pattern_all: {
+    args: ["ptr", "ptr", "ptr", "u32", "cstring", "ptr"],
+    returns: "i32",
+  },
+  // STRtree: query collects item ids in one crossing; nearest goes through
+  // nearest_generic with a C distance callback over the bound id→geom table
+  // (D16 — the plain GEOSSTRtree_nearest derefs items as geometry pointers).
+  geos_shim_strtree_query: { args: ["ptr", "ptr", "ptr", "ptr", "u32"], returns: "i32" },
+  geos_shim_strtree_bind_geoms: { args: ["ptr", "ptr", "u32"], returns: "ptr" },
+  geos_shim_strtree_table_free: { args: ["ptr"], returns: "void" },
+  geos_shim_strtree_nearest: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },
 } as const satisfies Record<string, FFISpec>;
 
 /**
@@ -157,6 +179,66 @@ const GEOS_TABLE = {
   GEOSDistance_r: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },
   GEOSHausdorffDistance_r: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },
   GEOSFrechetDistance_r: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },
+
+  // ===== Phase 2 (strict 3.14; interrupt install lives inside the shim) =====
+
+  // prepared predicates (RelateNG, 3.13+) — char returns like the unprepared set
+  GEOSPrepare_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSPreparedGeom_destroy_r: { args: ["ptr", "ptr"], returns: "void" },
+  GEOSPreparedIntersects_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSPreparedIntersectsXY_r: { args: ["ptr", "ptr", "f64", "f64"], returns: "i32" },
+  GEOSPreparedContains_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSPreparedContainsXY_r: { args: ["ptr", "ptr", "f64", "f64"], returns: "i32" },
+  GEOSPreparedContainsProperly_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSPreparedCoveredBy_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSPreparedCovers_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSPreparedCrosses_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSPreparedDisjoint_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSPreparedOverlaps_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSPreparedTouches_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSPreparedWithin_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  // GEOS-owned DE-9IM string → "ptr" + CString + GEOSFree_r (rule 2 / F10)
+  GEOSPreparedRelate_r: { args: ["ptr", "ptr", "ptr"], returns: "ptr" },
+  GEOSPreparedRelatePattern_r: { args: ["ptr", "ptr", "ptr", "cstring"], returns: "i32" },
+
+  // STRtree (query/nearest go through the shim — D16)
+  GEOSSTRtree_create_r: { args: ["ptr", "usize"], returns: "ptr" },
+  GEOSSTRtree_build_r: { args: ["ptr", "ptr"], returns: "i32" },
+  GEOSSTRtree_insert_r: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "void" },
+  GEOSSTRtree_destroy_r: { args: ["ptr", "ptr"], returns: "void" },
+
+  // coverage / repair suite
+  GEOSCoverageIsValid_r: { args: ["ptr", "ptr", "f64", "ptr"], returns: "i32" },
+  GEOSCoverageSimplifyVW_r: { args: ["ptr", "ptr", "f64", "i32"], returns: "ptr" },
+  GEOSCoverageCleanParams_create_r: { args: ["ptr"], returns: "ptr" },
+  GEOSCoverageCleanParams_destroy_r: { args: ["ptr", "ptr"], returns: "void" },
+  GEOSCoverageCleanParams_setSnappingDistance_r: { args: ["ptr", "ptr", "f64"], returns: "i32" },
+  GEOSCoverageCleanParams_setGapMaximumWidth_r: { args: ["ptr", "ptr", "f64"], returns: "i32" },
+  GEOSCoverageCleanParams_setOverlapMergeStrategy_r: {
+    args: ["ptr", "ptr", "i32"],
+    returns: "i32",
+  },
+  GEOSCoverageCleanWithParams_r: { args: ["ptr", "ptr", "ptr"], returns: "ptr" },
+  GEOSMakeValidParams_create_r: { args: ["ptr"], returns: "ptr" },
+  GEOSMakeValidParams_destroy_r: { args: ["ptr", "ptr"], returns: "void" },
+  GEOSMakeValidParams_setKeepCollapsed_r: { args: ["ptr", "ptr", "i32"], returns: "i32" },
+  GEOSMakeValidParams_setMethod_r: { args: ["ptr", "ptr", "i32"], returns: "i32" },
+  GEOSMakeValid_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSMakeValidWithParams_r: { args: ["ptr", "ptr", "ptr"], returns: "ptr" },
+  // out-params: one-element BigUint64Array for reason (char*) + location (geom)
+  GEOSisValidDetail_r: { args: ["ptr", "ptr", "i32", "ptr", "ptr"], returns: "i32" },
+  GEOSisSimpleDetail_r: { args: ["ptr", "ptr", "i32", "ptr"], returns: "i32" },
+  // in-place mutation → clone-then-orient at the wrapper layer
+  GEOSOrientPolygons_r: { args: ["ptr", "ptr", "i32"], returns: "i32" },
+
+  // precision model
+  GEOSGeom_setPrecision_r: { args: ["ptr", "ptr", "f64", "i32"], returns: "ptr" },
+  GEOSGeom_getPrecision_r: { args: ["ptr", "ptr"], returns: "f64" },
+  GEOSIntersectionPrec_r: { args: ["ptr", "ptr", "ptr", "f64"], returns: "ptr" },
+  GEOSUnionPrec_r: { args: ["ptr", "ptr", "ptr", "f64"], returns: "ptr" },
+  GEOSDifferencePrec_r: { args: ["ptr", "ptr", "ptr", "f64"], returns: "ptr" },
+  GEOSSymDifferencePrec_r: { args: ["ptr", "ptr", "ptr", "f64"], returns: "ptr" },
+  GEOSUnaryUnionPrec_r: { args: ["ptr", "ptr", "f64"], returns: "ptr" },
 } as const satisfies Record<string, FFISpec>;
 
 export type ShimSpecs = typeof SHIM_TABLE;
