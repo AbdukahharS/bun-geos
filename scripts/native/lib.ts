@@ -127,6 +127,12 @@ export interface Toolchain {
 }
 
 export function toolchainFor(target: Target): Toolchain {
+  // Optional cross-compile (documented darwin-x64 contingency): build
+  // x86_64 binaries on an arm64 runner. GEOS gets CMAKE_OSX_ARCHITECTURES;
+  // the shim gets -arch on the clang command line. The smoke then runs
+  // under Rosetta with an x64 bun process (a process can only load dylibs
+  // of its own architecture).
+  const cross = target.os === "darwin" ? process.env.BUN_GEOS_CROSS_ARCH || undefined : undefined;
   switch (target.os) {
     case "linux":
       return {
@@ -146,13 +152,24 @@ export function toolchainFor(target: Target): Toolchain {
     case "darwin":
       return {
         generator: ["-G", "Ninja"],
-        compilerFlags: ["-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++"],
+        compilerFlags: [
+          "-DCMAKE_C_COMPILER=clang",
+          "-DCMAKE_CXX_COMPILER=clang++",
+          ...(cross ? [`-DCMAKE_OSX_ARCHITECTURES=${cross}`] : []),
+        ],
         // ELF's $ORIGIN is Mach-O's @loader_path; LC_RPATH — like DT_RPATH —
         // is consulted for the whole transitive chain.
         installRpath: "@loader_path",
         shim: {
           compiler: "clang",
-          sharedFlags: ["-O2", "-fPIC", "-shared", "-Wall", "-Wextra"],
+          sharedFlags: [
+            "-O2",
+            "-fPIC",
+            "-shared",
+            "-Wall",
+            "-Wextra",
+            ...(cross ? [`-arch ${cross}`] : []),
+          ],
           linkFlags: [],
           rpath: "@loader_path",
           msvc: false,

@@ -88,6 +88,9 @@ async function publish(dir: string, name: string): Promise<"published" | "skippe
   }
   const npmrcPath = join(dir, ".npmrc");
   if (auth === "token") {
+    // `${NPM_TOKEN}` is npm's .npmrc env-interpolation syntax, not a JS
+    // template — the file carries no plaintext secret.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: npm .npmrc syntax
     writeFileSync(npmrcPath, "//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n");
   }
   try {

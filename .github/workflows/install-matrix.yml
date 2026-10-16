@@ -37,6 +37,7 @@ jobs:
         os: [macos-14, ubuntu-24.04, windows-2022]
         pm: [bun, npm, pnpm]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -93,6 +94,7 @@ jobs:
 
   alpine:
     name: alpine:3.20 (musl) / bun+npm+pnpm
+    timeout-minutes: 30
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     steps:
@@ -145,6 +147,7 @@ jobs:
   # Consumption modes from packaging.md §6 — one extra probe job.
   consumption:
     name: consumption modes (ubuntu)
+    timeout-minutes: 20
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-24.04
     steps:

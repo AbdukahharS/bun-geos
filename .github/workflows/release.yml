@@ -48,6 +48,7 @@ jobs:
           - target: linux-arm64-gnu
             os: ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -101,6 +102,7 @@ jobs:
           - target: linux-arm64-musl
             os: ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -140,16 +142,23 @@ jobs:
           path: packages/@shzd/bun-geos-${{ matrix.target }}/
 
   build-darwin:
-    name: build ${{ matrix.target }}
+    name: build ${{ matrix.target }}${{ matrix.cross && ' (cross)' || '' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: darwin-arm64
             os: macos-14
+          # macos-13's runner pool is gone (2026-10: queued > 14h) — the
+          # documented contingency: cross-compile x86_64 on macos-14 and
+          # smoke under Rosetta with an x64 bun process.
           - target: darwin-x64
-            os: macos-13 # retirement watch: cross-on-arm + Rosetta is the documented fallback (runbook)
+            os: macos-14
+            cross: "x86_64"
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      BUN_GEOS_CROSS_ARCH: ${{ matrix.cross || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -178,10 +187,26 @@ jobs:
       - name: Stage platform package
         run: bun run scripts/package-platform.ts --target ${{ matrix.target }}
 
+      # The smoke must run as an x64 PROCESS to load x86_64 dylibs — Rosetta
+      # does not let an arm64 process load them. A plain tarball fetch (not
+      # setup-bun) so the arm64 toolchain bun stays untouched.
+      - name: Fetch x64 bun for the Rosetta smoke
+        if: matrix.cross == 'x86_64'
+        run: |
+          softwareupdate --install-rosetta --agree-to-license || true
+          curl -fsSL -o /tmp/bun-x64.zip https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/bun-darwin-x64.zip
+          unzip -oq /tmp/bun-x64.zip -d /tmp/bunx64
+          arch -x86_64 /tmp/bunx64/bun-darwin-x64/bun --version
+
       - name: Platform smoke against the STAGED package
         env:
           BUN_GEOS_PACKAGE_DIR: ${{ github.workspace }}/packages/@shzd/bun-geos-${{ matrix.target }}
-        run: bun run scripts/platform-smoke.ts
+        run: |
+          if [ -x /tmp/bunx64/bun-darwin-x64/bun ]; then
+            arch -x86_64 /tmp/bunx64/bun-darwin-x64/bun run scripts/platform-smoke.ts
+          else
+            bun run scripts/platform-smoke.ts
+          fi
 
       - name: Licensing spot checks
         run: bun run scripts/native/licensing-check.ts ${{ matrix.target }}
@@ -195,6 +220,7 @@ jobs:
   build-win32:
     name: build win32-x64
     runs-on: windows-2022
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -243,6 +269,7 @@ jobs:
     name: publish ${{ github.ref_name }}
     needs: [build-linux, build-musl, build-darwin, build-win32]
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     environment: release
     permissions:
       contents: write # GitHub release notes
