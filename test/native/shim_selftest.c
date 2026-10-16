@@ -11,6 +11,7 @@
  * Exit code 0 = all scenarios clean; ASan aborts loudly otherwise.
  */
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,27 @@ extern void *geos_shim_build_linestring(GeosShim *, const double *, unsigned int
 extern void *geos_shim_build_polygon(GeosShim *, const double *, const unsigned int *, unsigned int, int, int);
 extern void *geos_shim_build_collection(GeosShim *, int, void **, unsigned int);
 extern void geos_shim_destroy_many(GeosShim *, void **, unsigned int);
+
+/* Phase 2 surface */
+extern void geos_shim_interrupt_request(void);
+extern void geos_shim_interrupt_reset(void);
+extern int geos_shim_clone_many(GeosShim *, void **, unsigned int, void **);
+extern void *geos_shim_clone_collect(GeosShim *, void **, unsigned int);
+extern int geos_shim_clone_members(GeosShim *, const void *, void **, unsigned int);
+extern void *geos_shim_union_all(GeosShim *, void **, unsigned int, int);
+extern void *geos_shim_coverage_union(GeosShim *, void **, unsigned int);
+extern int geos_shim_prepared_pred_all(GeosShim *, const void *, int, void **, unsigned int, unsigned char *);
+extern int geos_shim_prepared_relate_pattern_all(GeosShim *, const void *, void **, unsigned int, const char *, unsigned char *);
+extern int geos_shim_strtree_query(GeosShim *, void *, const void *, int32_t *, unsigned int);
+extern void *geos_shim_strtree_bind_geoms(GeosShim *, void **, unsigned int);
+extern void geos_shim_strtree_table_free(void *);
+extern int geos_shim_strtree_nearest(GeosShim *, void *, const void *, void **);
+
+/* Minimal geos_c decls for scenarios the TS table would normally drive */
+extern void *GEOSPrepare_r(void *, const void *);
+extern void GEOSPreparedGeom_destroy_r(void *, const void *);
+extern void GEOSGeom_destroy_r(void *, void *);
+extern int GEOSDistance_r(void *, const void *, const void *, double *);
 
 static int failures = 0;
 
@@ -124,6 +146,159 @@ int main(void) {
   CHECK(s2 != NULL && !has_error(s2), "fresh session has no pending error");
   geos_shim_destroy_many(s2, NULL, 0);
   geos_shim_finish(s2);
+
+  /* ============ Phase 2 surface (interrupt, clones, union dispatch,
+   * prepared masks, strtree query/nearest — decisions D16–D21) ============ */
+
+  /* 13. Interrupt flag: set → callback visible via GEOS; reset restores. The
+   * flag is global-atomic; flipping it makes any running op throw. */
+  geos_shim_interrupt_request();
+  geos_shim_interrupt_reset(); /* hygiene: immediately cleared again */
+  geos_shim_interrupt_request();
+  geos_shim_interrupt_reset();
+  fprintf(stderr, "  interrupt request/reset cycle ok\n");
+
+  /* 14. clone_many: two lines cloned; originals and clones all destroyed. */
+  void *src[2] = {mk_line(s, l1, 2), mk_line(s, l2, 2)};
+  void *clones[2] = {NULL, NULL};
+  CHECK(geos_shim_clone_many(s, src, 2, clones) == 0 && clones[0] && clones[1],
+        "clone_many clones both");
+  void *cloneParts[4] = {src[0], src[1], clones[0], clones[1]};
+  geos_shim_destroy_many(s, cloneParts, 4);
+
+  /* 15. clone_many error path: NULL src with n>0 rejected (no leak). */
+  CHECK(geos_shim_clone_many(s, NULL, 3, (void *[3]){0}) == -1 && has_error(s),
+        "clone_many rejects NULL src");
+
+  /* 16. clone_collect + clone_members: roundtrip preserves the member count. */
+  void *m1 = mk_line(s, l1, 2);
+  void *m2 = mk_line(s, l2, 2);
+  void *members[2] = {m1, m2};
+  void *coll2 = geos_shim_clone_collect(s, members, 2);
+  CHECK(coll2 != NULL && !has_error(s), "clone_collect builds a collection");
+  void *out[4] = {NULL, NULL, NULL, NULL};
+  int n2 = geos_shim_clone_members(s, coll2, out, 4);
+  CHECK(n2 == 2 && out[0] && out[1], "clone_members clones both members");
+  geos_shim_destroy_many(s, out, n2);
+  GEOSGeom_destroy_r(ctx, coll2);
+  geos_shim_destroy_many(s, members, 2);
+
+  /* 17. union_all strategies on two overlapping squares: unary / disjoint /
+   * auto agree; coverage strategy REJECTS the non-coverage with a message. */
+  double sqA[8] = {0, 0, 2, 0, 2, 2, 0, 0};
+  double sqB[8] = {1, 1, 3, 1, 3, 3, 1, 1};
+  unsigned int sqOffs[1] = {4};
+  void *polyA = geos_shim_build_polygon(s, sqA, sqOffs, 1, 0, 0);
+  void *polyB = geos_shim_build_polygon(s, sqB, sqOffs, 1, 0, 0);
+  CHECK(polyA && polyB, "union_all fixture polygons");
+  void *pair[2] = {polyA, polyB};
+  void *uUnary = geos_shim_union_all(s, pair, 2, 3);
+  void *uDisjoint = geos_shim_union_all(s, pair, 2, 2);
+  void *uAuto = geos_shim_union_all(s, pair, 2, 0);
+  CHECK(uUnary && uDisjoint && uAuto, "union_all unary/disjoint/auto succeed");
+  double dist = 0.0;
+  CHECK(GEOSDistance_r(ctx, uUnary, uAuto, &dist) == 1 && dist == 0.0,
+        "union_all unary ≡ auto (distance 0)");
+  GEOSGeom_destroy_r(ctx, uUnary);
+  GEOSGeom_destroy_r(ctx, uDisjoint);
+  GEOSGeom_destroy_r(ctx, uAuto);
+  void *uCoverage = geos_shim_union_all(s, pair, 2, 1);
+  const char *msg17 = geos_shim_last_error(s); /* read BEFORE any has_error() */
+  CHECK(uCoverage == NULL, "union_all coverage strategy rejects non-coverage");
+  CHECK(msg17 != NULL && strstr(msg17, "coverage") != NULL, "coverage rejection message");
+  fprintf(stderr, "  (captured: %s)\n", msg17 ? msg17 : "(null)");
+  void *cu = geos_shim_coverage_union(s, pair, 2); /* raw: caller asserts */
+  CHECK(cu != NULL, "raw coverage_union does not throw on non-coverage");
+  if (cu)
+    GEOSGeom_destroy_r(ctx, cu);
+  void *uOne = geos_shim_union_all(s, pair, 1, 0);
+  CHECK(uOne != NULL, "union_all n=1 is the identity (clone)");
+  void *unionParts[4] = {polyA, polyB, uOne};
+  geos_shim_destroy_many(s, unionParts, 3);
+
+  /* 18. Prepared predicate batch masks: 10 predicate ids against a square. */
+  void *square = geos_shim_build_polygon(s, sqA, sqOffs, 1, 0, 0);
+  const void *prep = GEOSPrepare_r(ctx, square);
+  CHECK(prep != NULL, "GEOSPrepare_r fixture");
+  /* tiny polygons: one inside the 0..2 square, one far away */
+  void *insidePt = geos_shim_build_polygon(s, (double[8]){0.5, 0.5, 0.75, 0.5, 0.75, 0.75, 0.5, 0.5}, sqOffs, 1, 0, 0);
+  void *farPt = geos_shim_build_polygon(s, (double[8]){50, 50, 50.5, 50, 50.5, 50.5, 50, 50}, sqOffs, 1, 0, 0);
+  void *cand[2] = {insidePt, farPt};
+  for (int predId = 0; predId <= 9; predId++) {
+    unsigned char mask[2] = {9, 9};
+    int r = geos_shim_prepared_pred_all(s, prep, predId, cand, 2, mask);
+    CHECK(r == 0, "prepared_pred_all evaluates pred");
+    CHECK((mask[0] == 0 || mask[0] == 1) && (mask[1] == 0 || mask[1] == 1),
+          "mask entries are 0/1");
+  }
+  /* intersects (id 0): inside true, far false. */
+  unsigned char mask2[2] = {9, 9};
+  CHECK(geos_shim_prepared_pred_all(s, prep, 0, cand, 2, mask2) == 0 && mask2[0] == 1 && mask2[1] == 0,
+        "prepared intersects mask values");
+  /* disjoint (id 6): the exact inverse. */
+  unsigned char mask3[2] = {9, 9};
+  CHECK(geos_shim_prepared_pred_all(s, prep, 6, cand, 2, mask3) == 0 && mask3[0] == 0 && mask3[1] == 1,
+        "prepared disjoint mask ≡ !intersects");
+  /* relate pattern batch (valid + invalid pattern). */
+  unsigned char mask4[2] = {9, 9};
+  CHECK(geos_shim_prepared_relate_pattern_all(s, prep, cand, 2, "0********", mask4) == 0,
+        "relate_pattern_all valid pattern");
+  CHECK(geos_shim_prepared_relate_pattern_all(s, prep, cand, 2, "BAD", mask4) == 1 && has_error(s),
+        "relate_pattern_all invalid pattern -> exception");
+  geos_shim_last_error(s);
+  GEOSPreparedGeom_destroy_r(ctx, prep);
+  geos_shim_destroy_many(s, (void *[3]){square, insidePt, farPt}, 3);
+
+  /* 19. STRtree query + nearest with integer-id items (D16). */
+  void *tree = NULL;
+  {
+    /* extern decls for the tree itself */
+    extern void *GEOSSTRtree_create_r(void *, size_t);
+    extern void GEOSSTRtree_insert_r(void *, void *, const void *, void *);
+    extern int GEOSSTRtree_build_r(void *, void *);
+    extern void GEOSSTRtree_destroy_r(void *, void *);
+    tree = GEOSSTRtree_create_r(ctx, 10);
+    CHECK(tree != NULL, "GEOSSTRtree_create_r");
+    void *items[50];
+    for (int i = 0; i < 50; i++) {
+      double xy[4] = {i, i, i + 1, i + 1}; /* diagonal segment i */
+      items[i] = mk_line(s, xy, 2);
+      GEOSSTRtree_insert_r(ctx, tree, items[i], (void *)(intptr_t)i);
+    }
+    GEOSSTRtree_build_r(ctx, tree);
+    void *query = mk_line(s, (double[4]){10, 10, 15, 15}, 2);
+    int32_t ids[64] = {0};
+    /* Envelope [9,10]² touches [10,15]² at the single point (10,10) — a
+     * boundary touch IS an envelope intersection, so ids are 9..15. */
+    int total = geos_shim_strtree_query(s, tree, query, ids, 64);
+    CHECK(total == 7, "strtree_query finds ids 9..15");
+    int ok = 1;
+    for (int k = 0; k < total; k++)
+      if (ids[k] < 9 || ids[k] > 15)
+        ok = 0;
+    CHECK(ok, "query ids are the expected range");
+    /* small buffer: total exceeds maxOut, partial write, no overflow */
+    int32_t tiny[2] = {-1, -1};
+    int total2 = geos_shim_strtree_query(s, tree, query, tiny, 2);
+    CHECK(total2 == 7 && tiny[0] == 9 && tiny[1] == 10, "small buffer writes prefix only");
+    /* nearest: id→geom table bound once, then reused */
+    void *table = geos_shim_strtree_bind_geoms(s, items, 50);
+    CHECK(table != NULL, "strtree_bind_geoms");
+    int near = geos_shim_strtree_nearest(s, tree, query, table);
+    CHECK(near >= 9 && near <= 15, "nearest id touches the query (distance 0)");
+    void *farQuery = mk_line(s, (double[4]){49.4, 49.4, 49.4, 49.4}, 2);
+    int near2 = geos_shim_strtree_nearest(s, tree, farQuery, table);
+    CHECK(near2 == 49, "nearest picks id 49 for (49.4, 49.4)");
+    GEOSGeom_destroy_r(ctx, farQuery);
+    /* empty table binding is rejected (nearest needs a table) */
+    CHECK(geos_shim_strtree_nearest(s, tree, query, NULL) == -2 && has_error(s),
+          "nearest without a table is an error");
+    geos_shim_last_error(s);
+    geos_shim_strtree_table_free(table);
+    GEOSGeom_destroy_r(ctx, query);
+    geos_shim_destroy_many(s, items, 50);
+    GEOSSTRtree_destroy_r(ctx, tree);
+  }
 
   geos_shim_finish(s);
   if (failures == 0) {
