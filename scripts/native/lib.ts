@@ -104,8 +104,14 @@ export async function extractGeosSource(): Promise<string> {
 export interface Toolchain {
   /** CMake generator argument, if any. */
   generator?: string[];
-  /** Environment overrides for cmake/ninja (CC/CXX). */
-  env: Record<string, string>;
+  /**
+   * CMake -D compiler flags. Passed as ARGUMENTS, never as CC/CXX
+   * environment variables: Bun Shell's `.env()` REPLACES the child
+   * environment (PATH included — verified on Bun 1.4.3), which leaves
+   * cmake unable to find ninja or any compiler. win32 passes none: cl.exe
+   * comes from the vcvars PATH with the default VS generator.
+   */
+  compilerFlags: string[];
   /** CMAKE_INSTALL_RPATH value for the install tree ('' = none). */
   installRpath: string;
   /** Shim compile+link command. */
@@ -125,7 +131,7 @@ export function toolchainFor(target: Target): Toolchain {
     case "linux":
       return {
         generator: ["-G", "Ninja"],
-        env: { CC: "gcc", CXX: "g++" },
+        compilerFlags: ["-DCMAKE_C_COMPILER=gcc", "-DCMAKE_CXX_COMPILER=g++"],
         installRpath: "$ORIGIN",
         shim: {
           compiler: "gcc",
@@ -140,7 +146,7 @@ export function toolchainFor(target: Target): Toolchain {
     case "darwin":
       return {
         generator: ["-G", "Ninja"],
-        env: { CC: "clang", CXX: "clang++" },
+        compilerFlags: ["-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++"],
         // ELF's $ORIGIN is Mach-O's @loader_path; LC_RPATH — like DT_RPATH —
         // is consulted for the whole transitive chain.
         installRpath: "@loader_path",
@@ -157,7 +163,7 @@ export function toolchainFor(target: Target): Toolchain {
       // dependency; no rpath concept (the loader preloads geos.dll first,
       // src/loader.ts).
       return {
-        env: {},
+        compilerFlags: [],
         installRpath: "",
         shim: {
           compiler: "cl",

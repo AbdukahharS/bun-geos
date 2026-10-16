@@ -52,10 +52,10 @@ export async function buildGeos(target: Target): Promise<void> {
   const rpathFlag = tc.installRpath
     ? [`-DCMAKE_INSTALL_RPATH=${tc.installRpath}`, "-DCMAKE_INSTALL_RPATH_USE_LINK_PATH=FALSE"]
     : ["-DCMAKE_INSTALL_RPATH="];
-  // Bun's shell interpolates arrays as one-argument-per-element.
-  await $`cmake -S ${src} -B ${buildDir} ${tc.generator ?? []} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=${GEOS_INSTALL} ${rpathFlag}`.env(
-    tc.env,
-  );
+  // Bun's shell interpolates arrays as one-argument-per-element. Compilers
+  // are -D flags, NOT env vars: Bun Shell's `.env()` wipes PATH for the
+  // child (see Toolchain.compilerFlags).
+  await $`cmake -S ${src} -B ${buildDir} ${tc.generator ?? []} -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=${GEOS_INSTALL} ${tc.compilerFlags} ${rpathFlag}`;
 
   console.log(`geos: compiling (${target.id})`);
   const jobs = navigator.hardwareConcurrency || 4;
