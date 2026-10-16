@@ -1,0 +1,114 @@
+/**
+ * WKB golden corpus (Phase 1 exit criterion #1): bytes pinned in-repo from
+ * the vendored GEOS 3.14.1 build. Roundtrip must be roundtrip-identical:
+ * `golden bytes → geometry → bytes` byte-identical at the same settings,
+ * and `geometry → bytes` must reproduce the goldens exactly.
+ */
+import { describe, expect, it } from "bun:test";
+import { Geos } from "../../src/index.ts";
+import { toHex } from "../helpers.ts";
+
+/** Generated from GEOS 3.14.1 (scripts pin: vendor/geos @ tag 3.14.1). */
+const GOLDENS: Record<string, { wkt: string; le: string; be: string }> = {
+  "point-2d": {
+    wkt: "POINT (1 2)",
+    le: "0101000000000000000000f03f0000000000000040",
+    be: "00000000013ff00000000000004000000000000000",
+  },
+  "point-z": {
+    wkt: "POINT Z (1 2 3)",
+    le: "0101000080000000000000f03f00000000000000400000000000000840",
+    be: "00800000013ff000000000000040000000000000004008000000000000",
+  },
+  "point-empty": {
+    wkt: "POINT EMPTY",
+    le: "0101000000000000000000f87f000000000000f87f",
+    be: "00000000017ff80000000000007ff8000000000000",
+  },
+  "linestring-2d": {
+    wkt: "LINESTRING (0 0, 1 1, 2 0)",
+    le: "01020000000300000000000000000000000000000000000000000000000000f03f000000000000f03f00000000000000400000000000000000",
+    be: "000000000200000003000000000000000000000000000000003ff00000000000003ff000000000000040000000000000000000000000000000",
+  },
+  "polygon-hole": {
+    wkt: "POLYGON ((0 0, 4 0, 4 4, 0 4, 0 0), (1 1, 3 1, 3 3, 1 3, 1 1))",
+    le: "01030000000200000005000000000000000000000000000000000000000000000000001040000000000000000000000000000010400000000000001040000000000000000000000000000010400000000000000000000000000000000005000000000000000000f03f000000000000f03f0000000000000840000000000000f03f00000000000008400000000000000840000000000000f03f0000000000000840000000000000f03f000000000000f03f",
+    be: "000000000300000002000000050000000000000000000000000000000040100000000000000000000000000000401000000000000040100000000000000000000000000000401000000000000000000000000000000000000000000000000000053ff00000000000003ff000000000000040080000000000003ff0000000000000400800000000000040080000000000003ff000000000000040080000000000003ff00000000000003ff0000000000000",
+  },
+  "polygon-empty": {
+    wkt: "POLYGON EMPTY",
+    le: "010300000000000000",
+    be: "000000000300000000",
+  },
+  multipoint: {
+    wkt: "MULTIPOINT ((0 0), (2 2))",
+    le: "010400000002000000010100000000000000000000000000000000000000010100000000000000000000400000000000000040",
+    be: "000000000400000002000000000100000000000000000000000000000000000000000140000000000000004000000000000000",
+  },
+  multilinestring: {
+    wkt: "MULTILINESTRING ((0 0, 1 1), (2 2, 3 3))",
+    le: "01050000000200000001020000000200000000000000000000000000000000000000000000000000f03f000000000000f03f0102000000020000000000000000000040000000000000004000000000000008400000000000000840",
+    be: "000000000500000002000000000200000002000000000000000000000000000000003ff00000000000003ff00000000000000000000002000000024000000000000000400000000000000040080000000000004008000000000000",
+  },
+  multipolygon: {
+    wkt: "MULTIPOLYGON (((0 0, 1 0, 0 1, 0 0)), ((2 0, 3 0, 2 1, 2 0)))",
+    le: "0106000000020000000103000000010000000400000000000000000000000000000000000000000000000000f03f00000000000000000000000000000000000000000000f03f000000000000000000000000000000000103000000010000000400000000000000000000400000000000000000000000000000084000000000000000000000000000000040000000000000f03f00000000000000400000000000000000",
+    be: "00000000060000000200000000030000000100000004000000000000000000000000000000003ff0000000000000000000000000000000000000000000003ff00000000000000000000000000000000000000000000000000000030000000100000004400000000000000000000000000000004008000000000000000000000000000040000000000000003ff000000000000040000000000000000000000000000000",
+  },
+  collection: {
+    wkt: "GEOMETRYCOLLECTION (POINT (1 1), LINESTRING (0 0, 1 1))",
+    le: "0107000000020000000101000000000000000000f03f000000000000f03f01020000000200000000000000000000000000000000000000000000000000f03f000000000000f03f",
+    be: "00000000070000000200000000013ff00000000000003ff0000000000000000000000200000002000000000000000000000000000000003ff00000000000003ff0000000000000",
+  },
+  "nan-point": {
+    wkt: "POINT (NaN NaN)",
+    le: "0101000000000000000000f87f000000000000f87f",
+    be: "00000000017ff80000000000007ff8000000000000",
+  },
+};
+
+describe("WKB golden corpus", () => {
+  it("geometry → bytes reproduces every golden exactly", () => {
+    using geos = new Geos();
+    for (const [name, golden] of Object.entries(GOLDENS)) {
+      const g = geos.fromWKT(golden.wkt);
+      expect(toHex(geos.toWKB(g, { byteOrder: "little" })), `${name} LE`).toBe(golden.le);
+      expect(toHex(geos.toWKB(g, { byteOrder: "big" })), `${name} BE`).toBe(golden.be);
+    }
+  });
+
+  it("golden bytes → geometry → bytes is roundtrip-identical", () => {
+    using geos = new Geos();
+    for (const [name, golden] of Object.entries(GOLDENS)) {
+      for (const [order, hex] of [
+        ["little", golden.le],
+        ["big", golden.be],
+      ] as const) {
+        const back = geos.fromWKB(Buffer.from(hex, "hex"));
+        expect(toHex(geos.toWKB(back, { byteOrder: order })), `${name} ${order}`).toBe(hex);
+      }
+    }
+  });
+
+  it("empty point and NaN point are the same bytes (GEOS §10.3 quirk)", () => {
+    using geos = new Geos();
+    const empty = geos.fromWKT("POINT EMPTY");
+    const nan = geos.fromWKT("POINT (NaN NaN)");
+    expect(toHex(geos.toWKB(empty))).toBe(toHex(geos.toWKB(nan)));
+    expect(geos.isEmpty(empty)).toBe(true);
+  });
+
+  it("the corpus parses through GeoJSON and Arrow identically too", () => {
+    using geos = new Geos();
+    for (const [name, golden] of Object.entries(GOLDENS)) {
+      if (name === "nan-point") continue; // NaN positions are not valid GeoJSON
+      const g = geos.fromWKT(golden.wkt);
+      const viaGeoJSON = geos.fromGeoJSON(geos.toGeoJSON(g));
+      expect(geos.equalsIdentical(g, viaGeoJSON), `${name} geojson`).toBe(true);
+      if (geos.typeId(g) !== 7) {
+        const viaArrow = geos.fromArrow(geos.toArrow(g));
+        expect(geos.equalsIdentical(g, viaArrow), `${name} arrow`).toBe(true);
+      }
+    }
+  });
+});
