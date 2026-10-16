@@ -55,8 +55,11 @@ if (process.argv.includes("--write")) {
   writeFileSync(DEF_FILE, expected);
   console.log(`def.ts: wrote ${names.length} exports → native/shim.def`);
 } else {
+  // Compare with line endings normalized: checkouts on Windows may arrive
+  // CRLF (the file's logical content is what drift-detection cares about).
+  const normalize = (s: string) => s.replaceAll("\r\n", "\n");
   const current = readFileSync(DEF_FILE, "utf8");
-  if (current !== expected) {
+  if (normalize(current) !== expected) {
     console.error(
       "def.ts: native/shim.def is out of sync with native/shim.c\n" +
         "  → run `bun run scripts/native/def.ts --write` and commit the result",
