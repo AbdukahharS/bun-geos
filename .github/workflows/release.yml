@@ -219,7 +219,10 @@ jobs:
 
   build-win32:
     name: build win32-x64
-    runs-on: windows-2022
+    # windows-latest, not windows-2022: the pinned 2022 label lost two jobs
+    # at runner-assignment (in_progress, no log blob, no step ever ran).
+    # -latest is the best-maintained pool; VS2022 either way.
+    runs-on: windows-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
