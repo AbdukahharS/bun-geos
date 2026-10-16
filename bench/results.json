@@ -1,51 +1,112 @@
 {
-  "when": "2026-10-16T05:59:44.804Z",
+  "when": "2026-10-16T13:02:58.761Z",
   "geos": "3.14.1-CAPI-1.20.5",
+  "bun": "1.4.3",
+  "cpu": "AMD Ryzen 7 260 w/ Radeon 780M Graphics",
+  "hwThreads": 16,
+  "commit": "6e87355",
+  "schema": 2,
   "results": [
     {
       "name": "prepared scan (1 polygon × 100k points)",
       "unit": "ms",
       "values": {
-        "unprepared": 182.06714399999998,
-        "prepared": 5.335219000000052,
-        "prepared+batch": 9.822143000000096
+        "unprepared": 180.67334400000004,
+        "prepared": 5.069840999999997,
+        "prepared+batch": 7.368498000000045
       },
-      "note": "prepared 34× vs unprepared; batch 1× over singulars"
+      "note": "prepared 36× vs unprepared"
     },
     {
       "name": "STRtree query (100000 items × 1000 envelopes)",
       "unit": "ms",
       "values": {
-        "naive JS envelope scan": 595.268227,
-        "strtree (shim-collected)": 5.480801000000611
+        "naive JS envelope scan": 455.5296500000004,
+        "strtree": 3.951430999999502,
+        "strtree+fused filter": 20.184266000000207
       },
-      "note": "109× vs naive scan"
+      "note": "115× vs naive scan"
     },
     {
       "name": "unionAll ladder (961 aligned tiles)",
       "unit": "ms",
       "values": {
-        "coverage": 4.046952000000601,
-        "disjointSubset": 10.58679200000006,
-        "unary": 9.925065000000359,
-        "auto": 4.6653269999997065
+        "coverage": 3.9812270000002172,
+        "disjointSubset": 10.273132999999689,
+        "unary": 9.483138999999937,
+        "auto": 4.083589000000757
       },
       "note": "coverage 2× vs unary"
+    },
+    {
+      "name": "batch vs singular (10⁵ squares)",
+      "unit": "ms",
+      "values": {
+        "overlay singular": 1319.2368619999997,
+        "overlay batch": 1303.424790000001,
+        "mask singular": 257.77657400000317,
+        "mask batch": 253.19839499999944,
+        "measure singular": 4.28165099999751,
+        "measure batch": 5.524734999999055,
+        "wkbRead singular": 3889.8771129999986,
+        "wkbRead batch": 534.9518229999958
+      },
+      "note": "engine-native FFI makes per-object calls cheap; batch = one crossing + C loops (D22 note)"
+    },
+    {
+      "name": "ingest (20000 squares)",
+      "unit": "ms",
+      "values": {
+        "WKT": 428.02562699999544,
+        "GeoJSON": 1156.0078820000053,
+        "WKB per-geometry": 479.2740429999976,
+        "WKB read-many": 41.1268809999965
+      },
+      "note": "11.7× read-many vs per-geometry"
     },
     {
       "name": "makeValid (1,000 bowties)",
       "unit": "ms",
       "values": {
-        "makeValid": 41.80545400000028
+        "makeValid": 39.2601749999958
       },
-      "note": "24 geoms/s"
+      "note": "25 geoms/s"
     },
     {
       "name": "coverageClean (dirty 20×20 coverage)",
       "unit": "ms",
       "values": {
-        "coverageClean": 6.264636000000792
+        "coverageClean": 5.928202999995847
       }
+    },
+    {
+      "name": "parallel makeValid (100000 bowties)",
+      "unit": "ms",
+      "values": {
+        "calling thread": 4017.5125819999994,
+        "worker pool": 1104.1962469999999
+      },
+      "note": "4× vs per-object calls (concurrency 12, chunkFactor 3 — the ≥5× exit axis, D23; WKB serialization bounds the pool at high ratios)"
+    },
+    {
+      "name": "parallel mask scan (100000 bowties × 1 polygon)",
+      "unit": "ms",
+      "values": {
+        "calling thread": 3.651086000001669,
+        "worker pool": 122.14538399999947
+      },
+      "note": "1× (WKB transfer bounds light ops)"
+    },
+    {
+      "name": "parallel overlay scaling (10⁵ squares × wobble(720))",
+      "unit": "ms",
+      "values": {
+        "1 worker": 857.0090290000007,
+        "2 workers": 604.9977509999953,
+        "4 workers": 662.828333999998,
+        "8 workers": 777.9617780000044
+      },
+      "note": "serialization-bound: the main thread builds 100k chunk WKBs per op (~1s) — cheap-geometry overlays don't parallelize past it; heavy per-item ops do"
     }
   ]
 }

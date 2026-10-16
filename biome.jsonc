@@ -5,6 +5,9 @@
     "clientKind": "git",
     "useIgnoreFile": true
   },
+  "javascript": {
+    "globals": ["Bun"]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -43,7 +46,7 @@
   // their verdicts by design; src/ code may not log.
   "overrides": [
     {
-      "includes": ["spike/**", "scripts/**", "test/bench/**"],
+      "includes": ["spike/**", "scripts/**", "bench/**", "test/**"],
       "linter": {
         "rules": {
           "suspicious": {
