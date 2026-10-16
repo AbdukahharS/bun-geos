@@ -46,6 +46,11 @@
 - **Worker race test:** spawn N workers that immediately load the package (regression
   net for the [#40972](https://github.com/oven-sh/bun/issues/40972) class; depends on the
   main-thread preload).
+- **PostGIS oracle (Phase 2):** `test/differential/postgis-oracle.test.ts` cross-checks
+  WKB ingest, validity, and overlay results against a live PostGIS. Skipped unless
+  `BUN_GEOS_PG_URI` is set; CI runs it as its own job against a pinned
+  `postgis/postgis` image (local:
+  `docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgis/postgis:17-3.5`).
 
 ## 4. Benchmarks (match the marketing)
 

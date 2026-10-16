@@ -45,14 +45,24 @@ throws (same-context rule, [memory §2](memory.md)).
 - Every GEOS call is synchronous and **blocks the calling thread's event loop** for the
   duration of the C call. For sub-millisecond ops this is invisible; for a 30-second
   overlay it is not.
-- **Cooperative cancellation:** the shim exposes an interrupt flag
-  (`geos_shim_interrupt_request/reset`); an `AbortSignal` listener flips it, GEOS's
-  `GEOSInterruptCallback` polls it mid-operation, the op aborts, the flag resets, and the
-  call throws `GeosError("aborted")`.
+- **Cooperative cancellation (D19 — amended in Phase 2).** The shim keeps an ATOMIC
+  GLOBAL interrupt flag read by the per-context `GEOSContextInterruptCallback` at GEOS's
+  own interruption points; `geos_shim_interrupt_request/reset` are thread-safe.
+  `{ signal }` on an op gives: a pre-check, a listener that flips the flag, a reset in
+  `finally`, and `GeosError("aborted", cause = signal.reason)` on failure.
+- **THE SAME-THREAD LIMITATION (measured, not theoretical):** a synchronous FFI call
+  blocks the JS thread, so a listener on the calling thread — including its timers —
+  CANNOT fire mid-call. Mid-flight cancellation of a main-thread op therefore requires
+  flipping the flag from ANOTHER thread: a Worker calls `geos.interruptRequest()` on its
+  own schedule (the test helper `test/helpers/interrupt-worker.ts` shows the pattern).
+  Main-thread `signal` still always delivers the pre-check and the aborted-error shape.
+- The real ergonomic path is Phase 3 `geos.parallel.*`: the op runs on a Worker, the
+  main thread stays free, its listener can message the Worker, and the Worker flips the
+  flag while its own GEOS call executes.
 
 ```ts
-const out = await geos.parallel.intersection(bigA, bigB, { signal });  // worker-based
-const out2 = geos.intersection(a, b, { signal });                      // main-thread, still cancellable
+const out = await geos.parallel.intersection(bigA, bigB, { signal });  // Phase 3 — truly mid-flight cancellable
+const out2 = geos.intersection(a, b, { signal });                      // pre-check + cross-thread flip + aborted shape
 ```
 
 - Guidance in docs: anything expected to exceed ~a frame belongs on a Worker — the

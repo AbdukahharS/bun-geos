@@ -1,9 +1,10 @@
 # bun-geos
 
 Bun-native TypeScript library wrapping GEOS 3.14 (`bun:ffi` + a small C shim).
-Phase 1 (core) is implemented under `src/`; the Phase 0 spike remains under
-`spike/` as the FFI-semantics regression net; research/design/operations docs
-live in `docs/`.
+Phase 1 (core) and Phase 2 (differentiators: prepared predicates, STRtree,
+unionAll dispatch, repair suite, precision model, interrupt) are implemented
+under `src/`; the Phase 0 spike remains under `spike/` as the FFI-semantics
+regression net; research/design/operations docs live in `docs/`.
 
 ## Layout
 
@@ -53,24 +54,42 @@ Default to Bun for everything (Bun 1.4.x, TypeScript ^7 native as peerDependency
 - Bun auto-loads `.env` / `.env.local`; don't add dotenv.
 - Prefer built-ins over extra dependencies: `Bun.serve()` (not express), `bun:sqlite` (not better-sqlite3), `Bun.sql` (not pg), `Bun.redis` (not ioredis), built-in `WebSocket` (not ws), `Bun.file` over node:fs read/write.
 
-## Phase 1 house rules (from docs/decisions.md — binding)
+## Phase 1+2 house rules (from docs/decisions.md — binding)
 
 - Bind `geos_c` `_r` functions ONLY via the declarative table in `src/symbols.ts`;
   keep its binding rules: `cstring` for `const char*` args; `returns: "ptr"` +
   `CString` + `GEOSFree_r` for GEOS-owned strings (a `cstring` return leaks them, F10);
   failed pointer returns are JS `null`, never `0`.
-- Branded handles (`GeomPtr`, `GeosCtx`, `ShimPtr` in `src/types.ts`) are the type
-  system's guard against the F8 wrapper/context mixup — never widen them.
+- Branded handles (`GeomPtr`, `GeosCtx`, `ShimPtr`, `PreparedPtr`, `StrTreePtr`, … in
+  `src/types.ts`) are the type system's guard against the F8 wrapper/context mixup —
+  never widen them. New in Phase 2: `PreparedPred` / `UnionStrategy` numeric ids MUST
+  match the shim's `SHIM_PREP_*` / `SHIM_UNION_*` enums (the selftest pins them).
 - Char-returning GEOS predicates need `& 0xff` (upper register bits are garbage —
-  x86-64 psABI); see `charResult` in `src/ops/predicates.ts`.
+  x86-64 psABI); see `charResult` in `src/ops/predicates.ts`. EXCEPTION: int returns
+  (`GEOSOrientPolygons_r` = 0 ok / -1 failure, `geos_shim_strtree_nearest` = -1/-2)
+  are NOT masked — masking -1 reads 255.
 - GEOS quirk (verified in geos_ts_c.cpp): `createCollection`/`createPolygon`/
   `createLineString`/`createPoint` consume their inputs EVEN ON FAILURE (the
   unique_ptr move happens before construction). Never free a consumed input on
   the error path — the shim comments document each site.
 - All geometry creation flows through `Geos.take()` (registration, stats, arena,
   finalization backstop). Never bind a raw `GEOSGeom_destroy_r` call outside
-  `geos.ts`/the shim.
-- src/ may not `console.log` (Biome `noConsole`); scripts/ and spike/ may.
+  `geos.ts`/the shim. Unregistered temporaries from shim calls are freed via
+  `Geos.destroyRaw` only (coverage ops pattern).
+- Consumer pins (D17): `Prepared`/`STRtree` register via `Geos.registerConsumable`
+  and pin their source geometries (`geometry.pinBy`) — pinned geometry disposal
+  throws, arena ownership is relinquished at pin time, and `Geos[Symbol.dispose]`
+  tears down consumables FIRST. Never destroy a pinned geometry's C object.
+- STRtree items are integer ids, never geometry pointers (D16) — the plain
+  `GEOSSTRtree_nearest` is UNUSABLE with id items (it derefs items); nearest goes
+  through the shim's `nearest_generic` wrapper + bound id→geom table.
+- Interrupt flag (D19): atomic GLOBAL in the shim, never thread-local; every
+  signal-taking op resets it in `finally` (`withSignal`). No op may leave the flag
+  set on return.
+- Coverage/repair outputs are OWNED clones (`geos_shim_clone_members`), never
+  borrowed views into an internal collection; error diagnostics are strings (D21).
+- src/ may not `console.log` (Biome `noConsole`); scripts/, spike/, and test/bench/
+  may.
 
 ## Reference
 

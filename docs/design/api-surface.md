@@ -3,6 +3,18 @@
 > Status: **design target, not a contract** (post-spike). The surface is fixed at the
 > GEOS 3.14 C API (D5) — no capability flags exist anywhere in this document. Method
 > names are provisional; grouping and semantics are the stable part.
+>
+> **Phase 2 status (Oct 2026):** Prepared §, Spatial index §, Overlays (unionAll/
+> `*Prec`) §, repair suite §, and interrupt are IMPLEMENTED. Documented deviations
+> from the sketches below: `isValidDetail`/`isSimpleDetail` (GEOS's names; singular
+> reason + owned location) instead of `isValidReasons`; `coverageIsValid` returns
+> `{ valid, errorEdges?: Geometry[] }` (per-input error-edge geoms) instead of index
+> pairs; diagnostics on `GeosError` are STRINGS (`GeosErrorDiagnostics`), never
+> geometries; the tree/`Prepared`/ops modules live in `src/spatial/` +
+> `src/ops/` (not `src/index/` — avoids the index.ts import ambiguity);
+> `orientPolygons` and the interrupt plumbing shipped alongside (io.md §3 /
+> D19). Batch input forms take `Geometry[]` in Phase 2; ArrowArray normalization
+> lands with the Phase 3 batch layer.
 
 ## Conventions
 

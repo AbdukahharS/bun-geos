@@ -50,6 +50,18 @@ a create/destroy soak; property-based invariants green.
 
 ## Phase 2 — Differentiators (all un-gated, GEOS 3.14)
 
+> **Status: COMPLETE — all exit criteria met** (October 2026, GEOS 3.14.1,
+> Bun 1.4.3). Prepared predicates (RelateNG, singular + `*All` batch masks),
+> STRtree (id items + shim-collected query/nearest, D16), `unionAll` strategy
+> dispatch (D20), repair suite (makeValid / coverage algebra / isValidDetail /
+> isSimpleDetail, D21), precision model (`setPrecision` + `*Prec`), interrupt
+> (`AbortSignal` → atomic global flag, D19). New decisions D16–D21 in
+> [decisions](decisions.md). Measured (bench/results.json): prepared scan
+> **32×** vs unprepared (1 polygon × 100k points); STRtree query **122×** vs
+> naive JS envelope scan (100k items × 1k queries); unionAll coverage **2.3×**
+> vs unary on 961 aligned tiles. Validity corpus: 857 GEOS/JTS xmltester
+> cases (TestValid*, TestIsValid, makevalid) pass as a differential gate.
+
 - **Prepared predicates** via RelateNG: `prepare()` + `*All` batch forms returning
   `Uint8Array` masks; `PreparedRelate`/`PreparedRelatePattern` (DE-9IM).
 - **STRtree**: insert/query/nearest with JS-side id registry (items are borrowed pointers).
@@ -63,7 +75,7 @@ a create/destroy soak; property-based invariants green.
 
 **Exit criteria.** Prepared/STRtree paths beat unprepared baselines in the benchmark suite
 by the expected orders (10–100× on indexed workloads); repair suite passes the JTS corpus
-validity cases.
+validity cases. → **Met: 32× / 122×; 857 corpus cases green** (see status note above).
 
 ## Phase 3 — Performance & scale
 

@@ -5,6 +5,13 @@
 > this surface remains a design target. The shim is D4 in the
 > [decision record](../decisions.md). It is the only C code in the repository and the
 > only place where `bun:ffi`'s limits are engineered around.
+>
+> **Phase 2 status (Oct 2026):** the Phase 2 surface is implemented — interrupt
+> accessors over an ATOMIC GLOBAL flag (D19; per-context
+> `GEOSContext_setInterruptCallback_r` installed at init), prepared-predicate batch
+> masks (D18), STRtree query collection + nearest via a bound id→geom table (D16),
+> and union_all strategy dispatch + bulk clone helpers (D20/D21). ~450 lines total;
+> scenarios for every addition live in `test/native/shim_selftest.c` under ASan/UBSan.
 
 ## 1. Why a shim is mandatory (not an optimization)
 

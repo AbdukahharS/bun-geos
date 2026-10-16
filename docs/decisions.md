@@ -225,11 +225,143 @@ Phase 4). If a floating-promise class of bug ever escapes Biome's type-aware rul
 typescript-eslint is added for that rule only — not as a second formatter or default
 linter.
 
+## D16 — STRtree items are integer ids; `nearest` goes through a shim distance table
+
+**Context.** The tree stores items as `void*`. Query/iterate only hand items
+back, but **`GEOSSTRtree_nearest` casts stored items to `GEOSGeometry*` to
+compute distances** (verified in geos_ts_c.cpp: it delegates to
+`nearest_generic` with `GeometryDistance`, which dereferences items). With the
+documented id-items design that is a wild-pointer deref; with pointer items it
+works but puts per-candidate ptr→id mapping into JS and dangles if the tree
+outlives a geometry.
+
+**Decision.** Items stay integer ids (`(void*)(intptr_t)id`). `nearest()` calls
+`GEOSSTRtree_nearest_generic_r` with a **shim-provided C distance callback**
+(C-to-C — still zero JSCallbacks) over an id→geometry table the shim copies at
+`build()` time (`geos_shim_strtree_bind_geoms`); the sentinel id `-1` maps to
+the query geometry. The tree freezes at `build()` so the bound table stays in
+sync. Liveness: the wrapper holds STRONG JS references to indexed geometries
+and pins them (D17), so the C tree can never dangle; `tree.dispose()` releases
+the pins. `GEOSSTRtree_remove_r`/`iterate_r` stay unbound (not in the API
+surface).
+
+**Consequences.** `query()` returns `Int32Array` ids with zero JS
+post-processing; `nearest()` is one crossing. Benchmark: 122× over a naive JS
+envelope scan (100k items × 1k queries). Removing an item requires a rebuild
+(documented).
+
+## D17 — Consumer pins: Prepared/STRtree take ownership-grade references
+
+**Context.** `GEOSPrepare` documents "destroy the prepared geometry first, as
+it has an internal reference to the base geometry". Two Phase 1 mechanisms
+would silently violate this: `Geometry.dispose()` on a prepared/indexed
+geometry, and arena teardown (`destroy_many` bypasses `dispose()` entirely).
+
+**Decision.** `Geometry` carries a consumer set. `prepare()`/`tree.insert()`
+register a consumer pin and **relinquish the geometry from any open arena**
+(it becomes individually owned by the caller — the arena would have freed it
+under the consumer). `dispose()` while pinned throws `TypeError` with
+remediation text; `renounce()` refuses too. `Prepared`/`STRtree` register with
+their `Geos` as *consumables*: `Geos[Symbol.dispose]` disposes them first
+(releasing the pins), then bulk-destroys remaining geometries.
+
+**Consequences.** Disposal order is enforced, not documented-and-hoped. An
+arena-born geometry that was prepared survives arena exit by design (the
+caller owns it afterwards).
+
+## D18 — Batch masks are one shim crossing; first exception aborts, no partial masks
+
+**Context.** `prep.intersectsAll(...)` as a JS loop over singulars pays
+per-call FFI overhead and violates the batch-first principle (architecture.md
+§3); but RelateNG prepared singulars are so fast (~50ns/call for points) that
+batching only pays off when the per-item GEOS work is heavier or the input is
+structured.
+
+**Decision.** `*All` masks run as ONE shim call
+(`geos_shim_prepared_pred_all` — predicate id switch in C, `Uint8Array` out)
+that checks the atomic interrupt flag between items. The first GEOS exception
+(char result 2) aborts the whole call — masks are all-or-nothing. Return
+codes: 0 ok, 1 exception (message captured), 2 interrupted.
+
+**Consequences.** Benchmarks show prepared singulars already beat unprepared
+by ~32×; batch wins when the GEOS work per item is larger than the FFI
+crossing (complex geometries) — the honest numbers live in `bench/results.json`.
+
+## D19 — Interrupt: atomic global flag; same-thread sync calls cannot be interrupted mid-flight
+
+**Context.** 3.14 offers per-context `GEOSContext_setInterruptCallback_r`. But
+a synchronous FFI call **blocks the JS thread**, so an `AbortSignal` listener
+on the calling thread can never fire during the call — including the
+`setTimeout` that would flip the flag. The concurrency doc's original
+"main-thread, still cancellable" model was wrong.
+
+**Decision.** The shim keeps an **atomic process-global** `g_interrupt` (C11
+`atomic_int`, volatile fallback pre-C11), read by the per-context callback
+installed once at `geos_shim_init`. `geos_shim_interrupt_request/reset` are
+thread-safe. `withSignal` (src/interrupt.ts) gives every op: pre-check,
+listener→flag, reset in `finally`, and — on failure — `GeosError(op
+"aborted", cause = signal.reason)`, also recognizing a cross-thread flip via
+GEOS's `InterruptedException` message. **Honest limitation, documented in
+concurrency.md:** mid-flight cancellation of a main-thread sync op requires
+flipping the flag from another thread (Worker) — the abort schedule must live
+on that thread. The ergonomic path is Phase 3 `parallel.*` (op on a Worker;
+main thread stays free to run the listener and message the Worker).
+
+**Consequences.** Verified end-to-end: a Worker flipping at t=40ms aborts a
+~300ms main-thread buffer at t≈40ms; the flag resets in `finally` so the
+context stays healthy. A stale flip between ops is also reset (hygiene rule:
+`reset` runs after every signal-taking op).
+
+## D20 — `unionAll` dispatch lives in the shim; `auto` validates before CoverageUnion
+
+**Context.** `GEOSCoverageUnion_r` on a non-coverage does not error — it
+returns a WRONG geometry. `GEOSDisjointSubsetUnion_r` is correct for arbitrary
+inputs. The clone loop and temp collection are ownership-tricky and
+loop-shaped (shim territory, shim.md §3).
+
+**Decision.** One shim call `geos_shim_union_all(parts, n, strategy)`:
+clone → temp GEOMETRYCOLLECTION → dispatch → result, temp always destroyed,
+inputs never consumed, `n == 1` is a clone (identity). Strategies: `auto` =
+`GEOSCoverageIsValid_r(gap 0)` first — valid ⇒ CoverageUnion; invalid OR
+exception (non-polygonal) ⇒ DisjointSubsetUnion; `coverage` = validate then
+union (rejection carries a remediation message); `disjointSubset`/`unary` are
+direct. Raw `geos.coverageUnion()` skips validation — documented
+caller-asserts fast path.
+
+**Consequences.** Two crossings regardless of input size (architecture.md §4).
+On a 961-tile aligned coverage: coverage 4.0ms vs unary 9.3ms (GEOS's own
+scaling; the gap widens with n). The ladder is in `bench/results.json`.
+
+## D21 — Coverage ops: `Geometry[]` in via shim clone-collect; owned clones out; diagnostics are strings
+
+**Context.** The coverage C entries take ONE collection geometry and return a
+collection (or aligned error-edge collection). Returning members as borrowed
+views would need a strongly-reachable parent collection — impossible to
+promise with the WeakRef-view design (a GC'd parent makes views silently
+unsafe, the H1 audit hole). Attaching location geometries to thrown
+`GeosError`s would put C resources inside exceptions — a disposal footgun.
+
+**Decision.** Coverage ops accept `Geometry[]`, normalized through
+`geos_shim_clone_collect` (one crossing; the collection consumes the clones).
+Outputs are cloned out (`geos_shim_clone_members`) as OWNED registered
+geometries. Temporary collections are destroyed via `Geos.destroyRaw` (the
+sanctioned unregistered-temporary path). Repair diagnostics attached to
+errors are STRINGS ONLY (`GeosErrorDiagnostics`: reason + location WKT);
+public `isValidDetail()`/`isSimpleDetail()` hand out the location as an owned
+geometry for callers who want it. `GEOSMakeValidParams`/
+`GEOSCoverageCleanParams` are pooled per `Geos` (values re-set per call) —
+same pattern as the pooled readers. `GEOSOrientPolygons_r` mutates in place,
+so the wrapper clones first: user input is never mutated. Note:
+`GEOSOrientPolygons_r` is an INT return (0 ok, -1 failure) — no 0xff masking.
+
+**Consequences.** Borrowed-view hazards cannot arise from coverage ops; one
+extra clone per output member is the cost (bulk-cloneable in Phase 3 if it
+ever shows in profiles).
+
 ---
 
 ## Open design work (tracked, not yet decided in detail)
 
-1. **Shim symbol list + C source sketch** — exact function set, thread-local layout.
-2. **Worker ownership rules** — `parallel()` chunking semantics, AbortSignal plumbing.
-3. **CI build matrix runbook** — per-platform flags, stripping, packaging, provenance.
-4. **Full API reference draft** — JS API ↔ `geos_c` symbol mapping table.
+1. **Worker ownership rules** — `parallel()` chunking semantics, AbortSignal plumbing.
+2. **CI build matrix runbook** — per-platform flags, stripping, packaging, provenance.
+3. **Full API reference draft** — JS API ↔ `geos_c` symbol mapping table.
