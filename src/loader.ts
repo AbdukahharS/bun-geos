@@ -214,26 +214,30 @@ export function openLibrary(opts?: LoadOptions): OpenResult {
     );
   }
 
-  // dlopen throws TypeError when the JIT is disabled (Bun 1.4+) — rethrow
-  // with the remediation. There is no JIT-less mode (D1).
+  // dlopen throws TypeError when the JIT is disabled (Bun 1.4+) — but that
+  // is NOT the only TypeError it throws (load failures on any platform
+  // arrive as TypeError too), so classify by MESSAGE, never by type alone,
+  // and always carry the original text into the surfaced error.
   let native: Native;
   try {
     native = openNative(shimPath, geosCPathResolved, geosPath ? [geosPath] : []);
   } catch (err) {
-    if (err instanceof TypeError) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof TypeError && /jit|ffi|transpile/i.test(message)) {
       throw new LoaderError(
         `bun-geos: bun:ffi is unavailable (JIT disabled?). bun-geos requires the JIT — ` +
           `remove --no-transpile-snapshot / smol flags. No WASM fallback exists (by design).`,
       );
     }
-    if (err instanceof Error && /could not be opened|dlopen|symbol not found/i.test(err.message)) {
-      throw new LoaderError(
-        `bun-geos: failed to load the native libraries (${err.message}).\n` +
-          `  If you are on Linux/glibc vs musl, the wrong libc variant may have loaded — ` +
-          `set BUN_GEOS_LIBRARY to a GEOS 3.14 libgeos_c to debug.`,
-      );
-    }
-    throw err;
+    throw new LoaderError(
+      `bun-geos: failed to load the native libraries.\n` +
+        `  shim: ${shimPath}\n` +
+        `  libgeos_c: ${geosCPathResolved}\n` +
+        (geosPath ? `  preloaded: ${geosPath}\n` : "") +
+        `  underlying error: ${message}\n` +
+        `  On Linux/glibc vs musl, the wrong libc variant may have loaded — ` +
+        `set BUN_GEOS_LIBRARY to a GEOS 3.14 libgeos_c to debug.`,
+    );
   }
 
   const version = native.geos.GEOSversion();

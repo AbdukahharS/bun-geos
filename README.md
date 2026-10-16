@@ -116,6 +116,9 @@ scans **32×** vs unprepared; STRtree queries **122×** vs a naive JS scan; WKB 
 - **`bun build --compile`** works (the embedded `.so` dlopens from `$bunfs`) but currently
   leaks one temp file per run ([#40076](https://github.com/oven-sh/bun/issues/40076)) —
   documented per Bun version, never silently broken.
+- **Windows**: GEOS is built with the dynamic VC++ runtime — the usual
+  [VC++ 2015–2022 redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) must be
+  present (most machines have it; CI runners do).
 
 ## License
 

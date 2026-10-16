@@ -299,20 +299,37 @@ export interface Native {
 /**
  * dlopen the libraries (same-inode dedup makes repeat loads a no-op).
  *
- * `preloads` are dlopened BEFORE geos_c — Windows only in practice: the DLL
+ * `preloads` are mapped BEFORE geos_c — Windows only in practice: the DLL
  * search path excludes a loaded DLL's own directory, so `geos.dll` must be
  * mapped (by absolute path → module name) before `geos_c.dll` binds it as a
  * dependency. On Linux/macOS the list is empty (DT_RPATH/LC_RPATH resolve
  * transitively, F3).
+ *
+ * Preloading goes through kernel32!LoadLibraryA, NOT bun:ffi's dlopen:
+ * dlopen requires a symbol table to bind (and an empty one is not a
+ * supported shape), while a preload needs no symbols — it only has to map
+ * the image so later loads resolve its name against the mapped module.
  */
 export function openNative(shimPath: string, geosCPath: string, preloads: string[] = []): Native {
+  if (preloads.length > 0) {
+    const kernel32 = dlopen("kernel32.dll", {
+      LoadLibraryA: { args: ["cstring"], returns: "ptr" },
+    });
+    for (const path of preloads) {
+      // Failed ptr returns arrive as JS null (F6). A plain Error — the
+      // loader wraps whatever escapes openNative with full context.
+      const handle = kernel32.symbols.LoadLibraryA(path);
+      if (handle === null) {
+        throw new Error(`LoadLibraryA failed for ${path}`);
+      }
+    }
+  }
   // geos_c FIRST (audit H4): with BUN_GEOS_LIBRARY the override must be the
   // copy the shim's NEEDED soname binds to (F3). Loading the shim first
   // would let its DT_RPATH bind the bundled libgeos_c and then map the
   // override as a SECOND instance — two C++ heaps, cross-copy handles, and
   // a version assert reading the wrong library. Loading geos_c first makes
   // the later shim load reuse the mapped soname in both modes.
-  for (const path of preloads) dlopen(path, {});
   const geosLib = dlopen(geosCPath, GEOS_TABLE);
   const shimLib = dlopen(shimPath, SHIM_TABLE);
   return {

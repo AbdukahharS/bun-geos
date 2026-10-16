@@ -224,3 +224,8 @@ requires an x64 bun under Rosetta, which SIGILLs once `bun:ffi`'s JIT engages
 (observed on Bun 1.4.3, crash report in CI). Real Intel Macs execute the
 package natively and are unaffected; re-test Rosetta execution on every Bun
 bump before restoring a dynamic gate.
+
+**Windows CRT note:** GEOS builds with the dynamic VC++ runtime (/MD) — end-user machines
+need the VC++ 2015–2022 redistributable (hosted runners have it). If that ever becomes a
+support burden, the alternative is shipping the CRT DLLs in the platform package (the
+sharp model) — a licensing-free, mechanical addition to package-platform.ts.
