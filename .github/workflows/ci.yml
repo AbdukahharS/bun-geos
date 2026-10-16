@@ -1,5 +1,6 @@
 # CI: lint + typecheck + native build + full test suite + ASan shim gate,
-# plus the PostGIS oracle job (Phase 2 gate — docs/operations/testing.md §5).
+# plus the PostGIS oracle job (Phase 2 gate) and the nightly long-run soak +
+# manual benchmark publication (Phase 3 gates — testing.md §5).
 # Single ubuntu job (the 7-platform build/publish matrix stays Phase 4).
 name: ci
 
@@ -7,6 +8,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 3 * * *" # nightly: the long-run leak soak (D24)
 
 jobs:
   check:
@@ -92,3 +95,79 @@ jobs:
         env:
           BUN_GEOS_PG_URI: postgres://postgres:postgres@localhost:5432/postgres
         run: bun test test/differential/postgis-oracle.test.ts
+
+  soak:
+    # Phase 3 gate (D24): long-run leak soak — batch arena churn + parallel
+    # pool ops must return stats/heap accounting to baseline with RSS bounded.
+    # Full scale nightly; on push/PR only the shell (same-job) short soaks run.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.3"
+
+      - name: Install native build deps
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache native build
+        uses: actions/cache@v4
+        with:
+          path: |
+                vendor/geos
+                build/native/geos-install
+          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/build-native.ts') }}
+
+      - name: Build GEOS 3.14.1 + shim
+        run: bun run build:native
+
+      - name: Long-run leak soak (SOAK_SCALE=large)
+        run: bun run test:soak
+
+  bench:
+    # Phase 3 gate (testing.md §5): the benchmark suite — manual trigger only
+    # (pinned-hardware rule); results land as a workflow artifact.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.3"
+
+      - name: Install native build deps
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache native build
+        uses: actions/cache@v4
+        with:
+          path: |
+                vendor/geos
+                build/native/geos-install
+          key: geos-3.14.1-${{ runner.os }}-${{ hashFiles('scripts/build-native.ts') }}
+
+      - name: Build GEOS 3.14.1 + shim
+        run: bun run build:native
+
+      - name: Benchmark suite (incl. the parallel subprocess suite)
+        run: bun run bench
+
+      - name: Render docs/benchmarks.md
+        run: bun run bench:report
+
+      - name: Publish results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            bench/results.json
+            docs/benchmarks.md
