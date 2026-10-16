@@ -3,7 +3,7 @@
  * auto-strategy ladder.
  */
 import { describe, expect, it } from "bun:test";
-import { type Geometry, Geos, GeosError } from "../../src/index.ts";
+import { type Geometry, type Geos, GeosError } from "../../src/index.ts";
 import { withGeos } from "../helpers.ts";
 
 /** n×n grid of unit square tiles — a textbook aligned coverage. */

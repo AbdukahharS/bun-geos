@@ -235,7 +235,12 @@ documented id-items design that is a wild-pointer deref; with pointer items it
 works but puts per-candidate ptr→id mapping into JS and dangles if the tree
 outlives a geometry.
 
-**Decision.** Items stay integer ids (`(void*)(intptr_t)id`). `nearest()` calls
+**Decision.** Items stay integer ids, stored **1-BASED**
+(`(void*)(intptr_t)(id + 1)`): `GEOSSTRtree_nearest_generic_r` returns the
+stored item, so a 0-valued item would be indistinguishable from its NULL
+"no answer" return — `nearest()` would misreport `-1` whenever item 0 was
+the true nearest (audited blocker, pinned by a dedicated test). The shim
+decodes `(item − 1)` at its three decode sites. `nearest()` calls
 `GEOSSTRtree_nearest_generic_r` with a **shim-provided C distance callback**
 (C-to-C — still zero JSCallbacks) over an id→geometry table the shim copies at
 `build()` time (`geos_shim_strtree_bind_geoms`); the sentinel id `-1` maps to
@@ -310,7 +315,13 @@ main thread stays free to run the listener and message the Worker).
 **Consequences.** Verified end-to-end: a Worker flipping at t=40ms aborts a
 ~300ms main-thread buffer at t≈40ms; the flag resets in `finally` so the
 context stays healthy. A stale flip between ops is also reset (hygiene rule:
-`reset` runs after every signal-taking op).
+`reset` runs after every signal-taking op). Interrupt error shape is UNIFORM
+across singular and batch paths when a signal was supplied (op `"aborted"`,
+the underlying `GeosError` as `cause`). Known limit (documented, Phase 3
+concern): the flag is process-global, so two ops running concurrently on
+DIFFERENT threads can erase each other's interrupt requests in their
+`finally` resets — within one thread ops are sequential, and the Phase 3
+worker pool will partition flag ownership by design.
 
 ## D20 — `unionAll` dispatch lives in the shim; `auto` validates before CoverageUnion
 
@@ -346,13 +357,18 @@ unsafe, the H1 audit hole). Attaching location geometries to thrown
 Outputs are cloned out (`geos_shim_clone_members`) as OWNED registered
 geometries. Temporary collections are destroyed via `Geos.destroyRaw` (the
 sanctioned unregistered-temporary path). Repair diagnostics attached to
-errors are STRINGS ONLY (`GeosErrorDiagnostics`: reason + location WKT);
-public `isValidDetail()`/`isSimpleDetail()` hand out the location as an owned
+errors are STRINGS ONLY (`GeosErrorDiagnostics`: reason + location WKT) —
+RESERVED: no Phase 2 throw site populates it; the public diagnostics API is
+`isValidDetail()`/`isSimpleDetail()` (owned location geometry). Public
+`isValidDetail()`/`isSimpleDetail()` hand out the location as an owned
 geometry for callers who want it. `GEOSMakeValidParams`/
-`GEOSCoverageCleanParams` are pooled per `Geos` (values re-set per call) —
-same pattern as the pooled readers. `GEOSOrientPolygons_r` mutates in place,
-so the wrapper clones first: user input is never mutated. Note:
-`GEOSOrientPolygons_r` is an INT return (0 ok, -1 failure) — no 0xff masking.
+`GEOSCoverageCleanParams` are pooled per `Geos` — and **ALL values are
+re-set on EVERY call** (omitted options reset to the documented defaults;
+audited stale-pool bug where only provided options were written, leaking a
+previous call's method/strategy into a later options-less call).
+`GEOSOrientPolygons_r` mutates in place, so the wrapper clones first: user
+input is never mutated. Note: `GEOSOrientPolygons_r` is an INT return (0 ok,
+-1 failure) — no 0xff masking.
 
 **Consequences.** Borrowed-view hazards cannot arise from coverage ops; one
 extra clone per output member is the cost (bulk-cloneable in Phase 3 if it

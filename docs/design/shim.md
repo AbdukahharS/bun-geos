@@ -9,9 +9,12 @@
 > **Phase 2 status (Oct 2026):** the Phase 2 surface is implemented — interrupt
 > accessors over an ATOMIC GLOBAL flag (D19; per-context
 > `GEOSContext_setInterruptCallback_r` installed at init), prepared-predicate batch
-> masks (D18), STRtree query collection + nearest via a bound id→geom table (D16),
-> and union_all strategy dispatch + bulk clone helpers (D20/D21). ~450 lines total;
-> scenarios for every addition live in `test/native/shim_selftest.c` under ASan/UBSan.
+> masks (D18), STRtree query collection + nearest via a bound id→geom table over
+> 1-BASED items (D16 — a 0-valued item would collide with nearest_generic's NULL
+> "no answer" return), and union_all strategy dispatch + bulk clone helpers
+> (D20/D21). ~790 lines total; scenarios for every addition live in
+> `test/native/shim_selftest.c` under ASan/UBSan, including a known-answer mask
+> table pinning all ten prepared predicate ids.
 
 ## 1. Why a shim is mandatory (not an optimization)
 

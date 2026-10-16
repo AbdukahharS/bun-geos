@@ -9,7 +9,10 @@
 > from the sketches below: `isValidDetail`/`isSimpleDetail` (GEOS's names; singular
 > reason + owned location) instead of `isValidReasons`; `coverageIsValid` returns
 > `{ valid, errorEdges?: Geometry[] }` (per-input error-edge geoms) instead of index
-> pairs; diagnostics on `GeosError` are STRINGS (`GeosErrorDiagnostics`), never
+> pairs; `coverageClean` uses GEOS's `gapMaximumWidth`/`snappingDistance`/
+> `overlapStrategy` param names (the sketch's `gapWidth` is the *coverageIsValid*
+> option, which is implemented as `gapWidth`); diagnostics on `GeosError` are
+> STRINGS (`GeosErrorDiagnostics`, reserved — no throw site populates it yet), never
 > geometries; the tree/`Prepared`/ops modules live in `src/spatial/` +
 > `src/ops/` (not `src/index/` — avoids the index.ts import ambiguity);
 > `orientPolygons` and the interrupt plumbing shipped alongside (io.md §3 /

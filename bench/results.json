@@ -1,34 +1,34 @@
 {
-  "when": "2026-10-16T04:51:31.189Z",
+  "when": "2026-10-16T05:59:44.804Z",
   "geos": "3.14.1-CAPI-1.20.5",
   "results": [
     {
       "name": "prepared scan (1 polygon × 100k points)",
       "unit": "ms",
       "values": {
-        "unprepared": 183.37697100000003,
-        "prepared": 5.22102400000017,
-        "prepared+batch": 7.981069000000161
+        "unprepared": 182.06714399999998,
+        "prepared": 5.335219000000052,
+        "prepared+batch": 9.822143000000096
       },
-      "note": "prepared 35× vs unprepared; batch 1× over singulars"
+      "note": "prepared 34× vs unprepared; batch 1× over singulars"
     },
     {
       "name": "STRtree query (100000 items × 1000 envelopes)",
       "unit": "ms",
       "values": {
-        "naive JS envelope scan": 537.4952650000005,
-        "strtree (shim-collected)": 4.43275100000028
+        "naive JS envelope scan": 595.268227,
+        "strtree (shim-collected)": 5.480801000000611
       },
-      "note": "121× vs naive scan"
+      "note": "109× vs naive scan"
     },
     {
       "name": "unionAll ladder (961 aligned tiles)",
       "unit": "ms",
       "values": {
-        "coverage": 4.128322999999909,
-        "disjointSubset": 10.722812999999405,
-        "unary": 9.678601999999955,
-        "auto": 4.134573000000273
+        "coverage": 4.046952000000601,
+        "disjointSubset": 10.58679200000006,
+        "unary": 9.925065000000359,
+        "auto": 4.6653269999997065
       },
       "note": "coverage 2× vs unary"
     },
@@ -36,15 +36,15 @@
       "name": "makeValid (1,000 bowties)",
       "unit": "ms",
       "values": {
-        "makeValid": 38.444682000000284
+        "makeValid": 41.80545400000028
       },
-      "note": "26 geoms/s"
+      "note": "24 geoms/s"
     },
     {
       "name": "coverageClean (dirty 20×20 coverage)",
       "unit": "ms",
       "values": {
-        "coverageClean": 5.566509000000224
+        "coverageClean": 6.264636000000792
       }
     }
   ]
