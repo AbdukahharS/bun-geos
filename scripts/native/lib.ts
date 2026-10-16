@@ -162,13 +162,16 @@ export function toolchainFor(target: Target): Toolchain {
         installRpath: "@loader_path",
         shim: {
           compiler: "clang",
+          // -arch and its value are SEPARATE argv entries: Bun's shell
+          // interpolates each array element as one token, so a "-arch x86_64"
+          // element reaches clang as a single unknown argument.
           sharedFlags: [
             "-O2",
             "-fPIC",
             "-shared",
             "-Wall",
             "-Wextra",
-            ...(cross ? [`-arch ${cross}`] : []),
+            ...(cross ? ["-arch", cross] : []),
           ],
           linkFlags: [],
           rpath: "@loader_path",
