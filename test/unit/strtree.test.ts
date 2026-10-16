@@ -83,6 +83,22 @@ describe("STRtree query", () => {
 });
 
 describe("STRtree nearest", () => {
+  it("reports id 0 when the first-inserted item is the nearest (NULL-overload pin)", () =>
+    withGeos((geos) => {
+      // id 0 is stored as (void*)(id+1): a 0-valued item would be
+      // indistinguishable from nearest_generic's NULL "no answer" return and
+      // nearest() would misreport -1 (audited blocker).
+      const geoms = [geos.point(0, 0), geos.point(50, 50), geos.point(90, 90)];
+      const tree = geos.strtree(geoms);
+      try {
+        using q = geos.point(1, 1); // nearest to id 0 by construction
+        expect(tree.nearest(q)).toBe(0);
+      } finally {
+        tree.dispose();
+        for (const g of geoms) g.dispose();
+      }
+    }));
+
   it("matches brute force distance (seeded)", () =>
     withGeos((geos) => {
       const rnd = mulberry32(0x9e57);
@@ -142,6 +158,34 @@ describe("STRtree lifecycle (D16/D17)", () => {
       a.dispose(); // released — caller owns it again
     }));
 
+  it("an arena-born geometry is relinquished to the caller when inserted (D17)", () =>
+    withGeos((geos) => {
+      let kept: Geometry;
+      {
+        using _arena = geos.arena();
+        const g = square(geos, 0, 0);
+        const tree = geos.strtree([g]); // pin removes g from the arena
+        kept = g;
+        tree.dispose(); // release the pin; geometry is caller-owned again
+      } // arena exits — must NOT free `kept`
+      expect(kept.disposed).toBe(false);
+      kept.dispose();
+    }));
+
+  it("strtree() constructor cleans up the tree when an insert throws mid-loop", () =>
+    withGeos((geos) => {
+      const good = square(geos, 0, 0);
+      try {
+        using other = new Geos();
+        const foreign = other.point(1, 1);
+        expect(() => geos.strtree([good, foreign])).toThrow(TypeError);
+        // the half-built tree was disposed → the pin is released
+        expect(good.pinned).toBe(false);
+      } finally {
+        good.dispose();
+      }
+    }));
+
   it("the tree keeps strong refs: no finalizer reaping of indexed geoms", () => {
     // geoms go out of scope while the tree is alive; wrappers are kept
     // reachable by the tree, so nothing is reaped and queries stay valid.
@@ -158,7 +202,6 @@ describe("STRtree lifecycle (D16/D17)", () => {
     // only the probe remains accounted; the rest are reaped by the backstop
     // eventually (or counted until then). No crash is the contract here.
     expect(geos.stats.liveGeoms).toBeLessThanOrEqual(liveBefore);
-    probe.dispose?.();
   });
 
   it("context dispose disposes a still-open tree without crashing", () =>

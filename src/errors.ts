@@ -19,6 +19,11 @@ export interface GeosErrorDetail {
  * field on a thrown error is a disposal footgun). `locationWKT` is the
  * `GEOSisValidDetail_r` location, `simpleLocationsWKT` the
  * `GEOSisSimpleDetail_r` MULTIPOINT of non-simple nodes (WKT).
+ *
+ * RESERVED (Phase 2 audit): no throw site populates this yet — the public
+ * diagnostics API is `isValidDetail()`/`isSimpleDetail()`, which hand out
+ * the location as an owned geometry. The field exists so later error paths
+ * can attach context without reshaping `GeosError`.
  */
 export interface GeosErrorDiagnostics {
   validReason?: string;

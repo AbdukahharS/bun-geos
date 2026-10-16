@@ -172,7 +172,8 @@ export type OverlapMergeStrategy = (typeof OverlapMergeStrategy)[keyof typeof Ov
  * Prepared predicate ids — the `predId` argument of
  * `geos_shim_prepared_pred_all`. MUST match the shim's `SHIM_PREP_*` enum
  * (native/shim.c): a mismatch is a silent wrong-predicate bug, so the
- * selftest pins every id against a known-answer pair.
+ * selftest pins every id against a known-answer fixture set (6 fixtures ×
+ * 10 ids — a swapped id cannot pass).
  */
 export const PreparedPred = {
   intersects: 0,

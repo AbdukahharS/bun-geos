@@ -43,9 +43,13 @@ describe("interrupt", () => {
       using big = geos.fromWKT(wkt);
       geos.interruptRequest();
       const t0 = performance.now();
-      expect(() => geos.buffer(big, 25, { quadSegs: 32 })).toThrow(GeosError);
-      expect(performance.now() - t0).toBeLessThan(50); // far below the full ~300ms
-      geos.interruptReset();
+      try {
+        expect(() => geos.buffer(big, 25, { quadSegs: 32 })).toThrow(GeosError);
+        expect(performance.now() - t0).toBeLessThan(50); // far below the full ~300ms
+      } finally {
+        // hygiene: never leave the process-global flag set for later tests
+        geos.interruptReset();
+      }
       using after = geos.buffer(big, 0.001, { quadSegs: 1 });
       expect(geos.isValid(after)).toBe(true);
     }));
@@ -67,9 +71,13 @@ describe("interrupt", () => {
       worker.onmessage = () => resolve();
     });
     const ac = new AbortController();
+    const flippedP = new Promise((resolve) => {
+      worker.onmessage = resolve;
+    });
     worker.postMessage({ abortAfterMs: 40 });
     try {
-      using _out = geos.buffer(big, 25, { signal: ac.signal, quadSegs: 32 });
+      using out = geos.buffer(big, 25, { signal: ac.signal, quadSegs: 32 });
+      expect(out.disposed).toBe(false); // reached only if the op wrongly succeeded
       throw new Error("op should have been interrupted");
     } catch (e) {
       expect(e).toBeInstanceOf(GeosError);
@@ -77,12 +85,44 @@ describe("interrupt", () => {
       expect(err.op).toBe("aborted");
       expect(err.message).toContain("aborted");
     } finally {
+      await flippedP;
+      // graceful worker shutdown: disposes its GEOS session before terminate
+      const bye = new Promise((resolve) => {
+        worker.onmessage = resolve;
+      });
+      worker.postMessage({ shutdown: true });
+      await bye;
       await worker.terminate();
     }
     // withSignal reset the flag in its finally — the context stays healthy
     using after = geos.buffer(big, 0.001, { quadSegs: 1 });
     expect(geos.isValid(after)).toBe(true);
   }, 30_000);
+
+  it("batch masks shape a cross-thread flip as aborted too (same contract as singulars)", () =>
+    withGeos((geos) => {
+      // Deterministic: pre-set the flag, then run a mask WITH a signal. The
+      // shim returns its "interrupted" code and the wrapper must reshape to
+      // op "aborted" — the audited inconsistency between singular and batch
+      // interrupt error shapes.
+      using a = geos.fromWKT("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))");
+      using prep = a.prepare();
+      const bs = [geos.point(1, 1), geos.point(20, 20)];
+      const ac = new AbortController();
+      geos.interruptRequest();
+      try {
+        prep.intersectsAll(bs, { signal: ac.signal });
+        throw new Error("mask should have been interrupted");
+      } catch (e) {
+        expect(e).toBeInstanceOf(GeosError);
+        expect((e as GeosError).op).toBe("aborted");
+      } finally {
+        geos.interruptReset();
+      }
+      // flag hygiene: reset restored the context
+      expect([...prep.intersectsAll(bs)]).toEqual([1, 0]);
+      for (const b of bs) b.dispose();
+    }));
 
   it("no signal + external flip surfaces the raw InterruptedException (not swallowed)", () =>
     withGeos((geos) => {
@@ -94,7 +134,9 @@ describe("interrupt", () => {
         throw new Error("should not reach");
       } catch (e) {
         expect((e as GeosError).geosMessage).toContain("Interrupted!");
+      } finally {
+        // hygiene: never leave the process-global flag set for later tests
+        geos.interruptReset();
       }
-      geos.interruptReset();
     }));
 });

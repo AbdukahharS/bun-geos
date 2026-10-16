@@ -653,7 +653,15 @@ export class Geos implements Disposable {
     this.assertOpen("strtree()");
     const tree = new STRtree(this, nodeCapacity);
     if (geoms !== undefined) {
-      for (const g of geoms) tree.insert(g);
+      // A mid-loop throw (foreign context, disposed geometry) must not leave
+      // an unreachable tree holding unreleasable pins — dispose it first
+      // (audited leak; consumables have no finalizer backstop).
+      try {
+        for (const g of geoms) tree.insert(g);
+      } catch (err) {
+        tree.dispose();
+        throw err;
+      }
     }
     return tree;
   }

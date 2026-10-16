@@ -3,7 +3,7 @@
  * algebra, orientPolygons.
  */
 import { describe, expect, it } from "bun:test";
-import type { Geometry } from "../../src/index.ts";
+import { type Geometry, Geos } from "../../src/index.ts";
 import { withGeos } from "../helpers.ts";
 
 const BOWTIE = "POLYGON ((0 0, 2 2, 2 0, 0 2, 0 0))";
@@ -34,6 +34,24 @@ describe("makeValid", () => {
       expect(geos.isValid(linework)).toBe(true);
       expect(geos.isValid(structure)).toBe(true);
       expect(geos.area(linework)).toBeCloseTo(geos.area(structure), 9);
+    }));
+
+  it("pooled params reset per call: a plain makeValid after a structured one uses linework", () =>
+    withGeos((geos) => {
+      using bowtie = geos.fromWKT(BOWTIE);
+      // first call sets non-default options on the POOLED params object…
+      using structured = geos.makeValid(bowtie, { method: "structure", keepCollapsed: true });
+      // …the second, options-less call must NOT inherit them (audited
+      // stale-pool bug: only provided options used to be re-set).
+      using plain = geos.makeValid(bowtie);
+      // a fresh context gives the true linework answer (WKT-compare: outputs
+      // are deterministic; geometries from different contexts can't be mixed)
+      using fresh = new Geos();
+      using bowtie2 = fresh.fromWKT(BOWTIE);
+      using expected = fresh.makeValid(bowtie2);
+      expect(geos.toWKT(plain)).toBe(fresh.toWKT(expected));
+      expect(geos.area(plain)).toBeCloseTo(fresh.area(expected), 9);
+      void structured;
     }));
 
   it("keepCollapsed preserves a zero-length line as a point (structure method)", () =>
@@ -173,6 +191,35 @@ describe("coverageIsValid / coverageClean / coverageSimplifyVW", () => {
         }
       } finally {
         for (const t of ts) t.dispose();
+      }
+    }));
+
+  it("coverageClean resets pooled params per call (stale-pool regression)", () =>
+    withGeos((geos) => {
+      const a = geos.fromWKT("POLYGON ((0 0, 2 0, 2 2, 0 2, 0 0))");
+      const b = geos.fromWKT("POLYGON ((1.9 0, 4 0, 4 2, 1.9 2, 1.9 0))");
+      try {
+        // first call: non-default strategy on the POOLED params object
+        const withMinArea = geos.coverageClean([a, b], { overlapStrategy: "minArea" });
+        // second, options-less call must use the fresh default strategy…
+        const plain = geos.coverageClean([a, b]);
+        // …verified against a FRESH context that never saw minArea
+        using other = new Geos();
+        const a2 = other.fromWKT("POLYGON ((0 0, 2 0, 2 2, 0 2, 0 0))");
+        const b2 = other.fromWKT("POLYGON ((1.9 0, 4 0, 4 2, 1.9 2, 1.9 0))");
+        const expected = other.coverageClean([a2, b2]);
+        expect(plain.length).toBe(expected.length);
+        for (let i = 0; i < plain.length; i++) {
+          expect(geos.area(plain[i]!)).toBeCloseTo(other.area(expected[i]!), 9);
+        }
+        for (const g of withMinArea) g.dispose();
+        for (const g of plain) g.dispose();
+        for (const g of expected) g.dispose();
+        a2.dispose();
+        b2.dispose();
+      } finally {
+        a.dispose();
+        b.dispose();
       }
     }));
 

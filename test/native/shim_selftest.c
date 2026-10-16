@@ -122,8 +122,8 @@ int main(void) {
   fprintf(stderr, "  (captured: %s)\n", msg7);
 
   /* 8. destroy_many on a partially-built array (NULL tail entries skipped). */
-  void *partial[4] = {line, poly, col, NULL};
-  geos_shim_destroy_many(s, partial, 3);
+  void *batch8[4] = {line, poly, col, NULL};
+  geos_shim_destroy_many(s, batch8, 3);
   fprintf(stderr, "  destroy_many: 3 geoms freed\n");
 
   /* 9. destroy_many with n = 0 and NULL array: no-op. */
@@ -185,9 +185,11 @@ int main(void) {
 
   /* 17. union_all strategies on two overlapping squares: unary / disjoint /
    * auto agree; coverage strategy REJECTS the non-coverage with a message. */
-  double sqA[8] = {0, 0, 2, 0, 2, 2, 0, 0};
-  double sqB[8] = {1, 1, 3, 1, 3, 3, 1, 1};
-  unsigned int sqOffs[1] = {4};
+  /* True closed squares (4 distinct corners + closing point — a 4-entry
+   * ring would be a TRIANGLE and silently change every predicate answer). */
+  double sqA[10] = {0, 0, 2, 0, 2, 2, 0, 2, 0, 0};
+  double sqB[10] = {1, 1, 3, 1, 3, 3, 1, 3, 1, 1};
+  unsigned int sqOffs[1] = {5};
   void *polyA = geos_shim_build_polygon(s, sqA, sqOffs, 1, 0, 0);
   void *polyB = geos_shim_build_polygon(s, sqB, sqOffs, 1, 0, 0);
   CHECK(polyA && polyB, "union_all fixture polygons");
@@ -216,40 +218,72 @@ int main(void) {
   void *unionParts[4] = {polyA, polyB, uOne};
   geos_shim_destroy_many(s, unionParts, 3);
 
-  /* 18. Prepared predicate batch masks: 10 predicate ids against a square. */
+  /* 18. Prepared predicate batch masks: every predId pinned against a
+   * known-answer fixture set (the enum contract — a swapped id must fail). */
   void *square = geos_shim_build_polygon(s, sqA, sqOffs, 1, 0, 0);
   const void *prep = GEOSPrepare_r(ctx, square);
   CHECK(prep != NULL, "GEOSPrepare_r fixture");
-  /* tiny polygons: one inside the 0..2 square, one far away */
-  void *insidePt = geos_shim_build_polygon(s, (double[8]){0.5, 0.5, 0.75, 0.5, 0.75, 0.75, 0.5, 0.5}, sqOffs, 1, 0, 0);
-  void *farPt = geos_shim_build_polygon(s, (double[8]){50, 50, 50.5, 50, 50.5, 50.5, 50, 50}, sqOffs, 1, 0, 0);
-  void *cand[2] = {insidePt, farPt};
-  for (int predId = 0; predId <= 9; predId++) {
-    unsigned char mask[2] = {9, 9};
-    int r = geos_shim_prepared_pred_all(s, prep, predId, cand, 2, mask);
+  /* Fixtures vs the prepared 0..2 square (masks are {inside,partial,touch,line,big,far}):
+   *   inside  = triangle strictly interior
+   *   partial = square overlapping half of it  (interiors cross, neither contains)
+   *   touch   = polygon sharing the x=2 edge only
+   *   line    = linestring through the interior (P/L crosses = 1)
+   *   big     = polygon CONTAINING the square (coveredBy/within/containsProperly = 1)
+   *   far     = polygon 50 units away (disjoint = 1)                                    */
+  void *inside = geos_shim_build_polygon(
+      s, (double[8]){0.5, 0.5, 0.75, 0.5, 0.75, 0.75, 0.5, 0.5}, (unsigned int[1]){4}, 1, 0, 0);
+  void *partial = geos_shim_build_polygon(
+      s, (double[10]){1, 1, 3, 1, 3, 3, 1, 3, 1, 1}, (unsigned int[1]){5}, 1, 0, 0);
+  void *touch = geos_shim_build_polygon(
+      s, (double[10]){2, 0, 3, 0, 3, 2, 2, 2, 2, 0}, (unsigned int[1]){5}, 1, 0, 0);
+  void *crossLine = mk_line(s, (double[4]){-1, 1, 3, 1}, 2);
+  void *big = geos_shim_build_polygon(
+      s, (double[10]){-2, -2, 12, -2, 12, 12, -2, 12, -2, -2}, (unsigned int[1]){5}, 1, 0, 0);
+  void *far = geos_shim_build_polygon(
+      s, (double[8]){50, 50, 50.5, 50, 50.5, 50.5, 50, 50}, (unsigned int[1]){4}, 1, 0, 0);
+  void *cand[6] = {inside, partial, touch, crossLine, big, far};
+  static const struct {
+    int id;
+    unsigned char mask[6];
+  } PREP_ANSWERS[10] = {
+      /* intersects        */ {0, {1, 1, 1, 1, 1, 0}},
+      /* contains          */ {1, {1, 0, 0, 0, 0, 0}},
+      /* containsProperly  */ {2, {1, 0, 0, 0, 0, 0}},
+      /* coveredBy         */ {3, {0, 0, 0, 0, 1, 0}},
+      /* covers            */ {4, {1, 0, 0, 0, 0, 0}},
+      /* crosses           */ {5, {0, 0, 0, 1, 0, 0}},
+      /* disjoint          */ {6, {0, 0, 0, 0, 0, 1}},
+      /* overlaps          */ {7, {0, 1, 0, 0, 0, 0}},
+      /* touches           */ {8, {0, 0, 1, 0, 0, 0}},
+      /* within            */ {9, {0, 0, 0, 0, 1, 0}},
+  };
+  for (int p = 0; p < 10; p++) {
+    unsigned char mask[6] = {9, 9, 9, 9, 9, 9};
+    int r = geos_shim_prepared_pred_all(s, prep, PREP_ANSWERS[p].id, cand, 6, mask);
     CHECK(r == 0, "prepared_pred_all evaluates pred");
-    CHECK((mask[0] == 0 || mask[0] == 1) && (mask[1] == 0 || mask[1] == 1),
-          "mask entries are 0/1");
+    int same = 1;
+    for (int k = 0; k < 6; k++)
+      if (mask[k] != PREP_ANSWERS[p].mask[k])
+        same = 0;
+    CHECK(same, "predicate id matches its known-answer mask");
+    if (!same)
+      fprintf(stderr, "  (predId %d mask mismatch: %u%u%u%u%u%u)\n", PREP_ANSWERS[p].id, mask[0],
+              mask[1], mask[2], mask[3], mask[4], mask[5]);
   }
-  /* intersects (id 0): inside true, far false. */
-  unsigned char mask2[2] = {9, 9};
-  CHECK(geos_shim_prepared_pred_all(s, prep, 0, cand, 2, mask2) == 0 && mask2[0] == 1 && mask2[1] == 0,
-        "prepared intersects mask values");
-  /* disjoint (id 6): the exact inverse. */
-  unsigned char mask3[2] = {9, 9};
-  CHECK(geos_shim_prepared_pred_all(s, prep, 6, cand, 2, mask3) == 0 && mask3[0] == 0 && mask3[1] == 1,
-        "prepared disjoint mask ≡ !intersects");
   /* relate pattern batch (valid + invalid pattern). */
-  unsigned char mask4[2] = {9, 9};
-  CHECK(geos_shim_prepared_relate_pattern_all(s, prep, cand, 2, "0********", mask4) == 0,
+  unsigned char mask4[6] = {9, 9, 9, 9, 9, 9};
+  CHECK(geos_shim_prepared_relate_pattern_all(s, prep, cand, 6, "0********", mask4) == 0,
         "relate_pattern_all valid pattern");
-  CHECK(geos_shim_prepared_relate_pattern_all(s, prep, cand, 2, "BAD", mask4) == 1 && has_error(s),
+  CHECK(geos_shim_prepared_relate_pattern_all(s, prep, cand, 6, "BAD", mask4) == 1 && has_error(s),
         "relate_pattern_all invalid pattern -> exception");
   geos_shim_last_error(s);
   GEOSPreparedGeom_destroy_r(ctx, prep);
-  geos_shim_destroy_many(s, (void *[3]){square, insidePt, farPt}, 3);
+  geos_shim_destroy_many(s, (void *[7]){square, inside, partial, touch, crossLine, big, far}, 7);
 
-  /* 19. STRtree query + nearest with integer-id items (D16). */
+  /* 19. STRtree query + nearest with integer-id items (D16). Items are
+   * stored 1-BASED: GEOS returns the item from nearest_generic, and a 0 item
+   * would be indistinguishable from the NULL "no answer" return — the tree
+   * in scenario 19 pins exactly that case (nearest to item id 0). */
   void *tree = NULL;
   {
     /* extern decls for the tree itself */
@@ -263,7 +297,8 @@ int main(void) {
     for (int i = 0; i < 50; i++) {
       double xy[4] = {i, i, i + 1, i + 1}; /* diagonal segment i */
       items[i] = mk_line(s, xy, 2);
-      GEOSSTRtree_insert_r(ctx, tree, items[i], (void *)(intptr_t)i);
+      /* 1-BASED item encoding — the shim decodes (item - 1). */
+      GEOSSTRtree_insert_r(ctx, tree, items[i], (void *)(intptr_t)(i + 1));
     }
     GEOSSTRtree_build_r(ctx, tree);
     void *query = mk_line(s, (double[4]){10, 10, 15, 15}, 2);
@@ -271,7 +306,7 @@ int main(void) {
     /* Envelope [9,10]² touches [10,15]² at the single point (10,10) — a
      * boundary touch IS an envelope intersection, so ids are 9..15. */
     int total = geos_shim_strtree_query(s, tree, query, ids, 64);
-    CHECK(total == 7, "strtree_query finds ids 9..15");
+    CHECK(total == 7, "strtree_query finds ids 9..15 (1-based decode)");
     int ok = 1;
     for (int k = 0; k < total; k++)
       if (ids[k] < 9 || ids[k] > 15)
@@ -290,6 +325,12 @@ int main(void) {
     int near2 = geos_shim_strtree_nearest(s, tree, farQuery, table);
     CHECK(near2 == 49, "nearest picks id 49 for (49.4, 49.4)");
     GEOSGeom_destroy_r(ctx, farQuery);
+    /* THE NULL-OVERLOAD PIN (audited blocker): query nearest to ITEM 0 —
+     * the correct answer is id 0, which as a raw item would be NULL/-1. */
+    void *id0Query = mk_line(s, (double[4]){-0.5, 0, 0.5, 0}, 2);
+    int near0 = geos_shim_strtree_nearest(s, tree, id0Query, table);
+    CHECK(near0 == 0, "nearest reports id 0 (not -1) when item 0 is nearest");
+    GEOSGeom_destroy_r(ctx, id0Query);
     /* empty table binding is rejected (nearest needs a table) */
     CHECK(geos_shim_strtree_nearest(s, tree, query, NULL) == -2 && has_error(s),
           "nearest without a table is an error");

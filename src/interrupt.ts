@@ -36,6 +36,13 @@ export function abortError(signal: AbortSignal, cause?: unknown): GeosError {
 /**
  * Run `fn` under the given signal. The ops modules stay signal-free; the
  * `Geos` method wrappers close over the caller's options and wrap the call.
+ *
+ * Cross-context note (D19): the flag is process-global, so two ops running
+ * concurrently on DIFFERENT threads can erase each other's interrupt
+ * requests (one thread's `finally` reset clears a request meant for the
+ * other). Within one thread ops are sequential and this cannot happen;
+ * cross-Worker setups must ensure only one signal-taking op is in flight
+ * per flag (Phase 3's worker pool will partition by design).
  */
 export function withSignal<T>(geos: Geos, signal: AbortSignal | undefined, fn: () => T): T {
   if (signal === undefined) return fn();
@@ -48,7 +55,9 @@ export function withSignal<T>(geos: Geos, signal: AbortSignal | undefined, fn: (
   try {
     return fn();
   } catch (err) {
-    if (signal.aborted && err instanceof GeosError) throw abortError(signal);
+    // The underlying GeosError (with its GEOS message) is always preserved
+    // as `cause` — never discarded.
+    if (signal.aborted && err instanceof GeosError) throw abortError(signal, err);
     // Cross-thread pattern (D19): the flag was flipped by ANOTHER thread in
     // response to this signal while this thread was blocked in the C call —
     // GEOS surfaces it as InterruptedException. Re-shape it as the aborted

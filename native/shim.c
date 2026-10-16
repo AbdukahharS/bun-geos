@@ -408,6 +408,10 @@ int geos_shim_clone_many(GeosShim *shim, GEOSGeometry **src, unsigned int n, GEO
     return -1;
   }
   for (unsigned int i = 0; i < n; i++) {
+    if (!src[i]) {
+      shim_set_error("clone_many: NULL geometry at index %u", i);
+      return -1;
+    }
     out[i] = GEOSGeom_clone_r(shim->ctx, src[i]);
     if (!out[i]) {
       for (unsigned int j = 0; j < i; j++) {
@@ -435,6 +439,13 @@ static GEOSGeometry *clone_collect(GeosShim *shim, GEOSGeometry **parts, unsigne
     return NULL;
   }
   for (unsigned int i = 0; i < n; i++) {
+    if (!parts[i]) {
+      shim_set_error("clone_collect: NULL geometry at index %u", i);
+      for (unsigned int j = 0; j < i; j++)
+        GEOSGeom_destroy_r(shim->ctx, clones[j]);
+      free(clones);
+      return NULL;
+    }
     clones[i] = GEOSGeom_clone_r(shim->ctx, parts[i]);
     if (!clones[i]) {
       for (unsigned int j = 0; j < i; j++)
@@ -505,7 +516,8 @@ int geos_shim_clone_members(GeosShim *shim, const GEOSGeometry *collection, GEOS
 
 /*
  * Strategy ids — must match UnionStrategy in src/types.ts.
- *   0 auto: valid polygonal coverage -> CoverageUnion; else DisjointSubsetUnion.
+ *   0 auto: valid coverage -> CoverageUnion; otherwise (invalid OR
+ *     non-polygonal) DisjointSubsetUnion.
  *   1 coverage: validate first (CoverageUnion on a non-coverage is silently
  *     WRONG, not an error) then CoverageUnion.
  *   2 disjointSubset: GEOSDisjointSubsetUnion (correct for any input).
@@ -518,10 +530,11 @@ int geos_shim_clone_members(GeosShim *shim, const GEOSGeometry *collection, GEOS
 #define SHIM_UNION_DISJOINT 2
 #define SHIM_UNION_UNARY 3
 
-/* 1 valid, 0 invalid, 2 exception (message captured). */
+/* 1 valid, 0 invalid, 2 exception (message captured) — an INT return, never
+ * masked (masking would turn a future -1 sentinel into 255). */
 static int coverage_check(GeosShim *shim, const GEOSGeometry *coll) {
   GEOSGeometry *invalidEdges = NULL;
-  int r = GEOSCoverageIsValid_r(shim->ctx, coll, 0.0, &invalidEdges) & 0xff;
+  int r = GEOSCoverageIsValid_r(shim->ctx, coll, 0.0, &invalidEdges);
   if (invalidEdges)
     GEOSGeom_destroy_r(shim->ctx, invalidEdges);
   return r;
@@ -557,7 +570,7 @@ GEOSGeometry *geos_shim_union_all(GeosShim *shim, GEOSGeometry **parts, unsigned
                      "(GEOSCoverageIsValid found overlaps/gaps; use strategy \"auto\" or clean "
                      "with coverageClean first)");
     /* ok == 2: GEOS exception — message already captured (e.g. non-polygonal input). */
-  } else { /* AUTO */
+  } else if (strategy == SHIM_UNION_AUTO) {
     int ok = coverage_check(shim, coll);
     if (ok == 1)
       result = GEOSCoverageUnion_r(shim->ctx, coll);
@@ -566,6 +579,8 @@ GEOSGeometry *geos_shim_union_all(GeosShim *shim, GEOSGeometry **parts, unsigned
        * subset path is correct for both. A genuine GEOS error surfaces from
        * this call too. */
       result = GEOSDisjointSubsetUnion_r(shim->ctx, coll);
+  } else {
+    shim_set_error("union_all: unknown strategy %d", strategy);
   }
   GEOSGeom_destroy_r(shim->ctx, coll);
   return result;
@@ -654,6 +669,10 @@ int geos_shim_prepared_pred_all(GeosShim *shim, const GEOSPreparedGeometry *pg, 
       shim_set_error("prepared_pred_all: interrupted by request");
       return 2;
     }
+    if (!geoms[i]) {
+      shim_set_error("prepared_pred_all: NULL geometry at index %u", i);
+      return 1;
+    }
     char r = prep_call(predId, shim->ctx, pg, geoms[i]) & 0xff;
     if (r == 2)
       return 1; /* GEOS message already captured */
@@ -678,6 +697,10 @@ int geos_shim_prepared_relate_pattern_all(GeosShim *shim, const GEOSPreparedGeom
       shim_set_error("prepared_relate_pattern_all: interrupted by request");
       return 2;
     }
+    if (!geoms[i]) {
+      shim_set_error("prepared_relate_pattern_all: NULL geometry at index %u", i);
+      return 1;
+    }
     char r = GEOSPreparedRelatePattern_r(shim->ctx, pg, geoms[i], pattern) & 0xff;
     if (r == 2)
       return 1;
@@ -694,11 +717,15 @@ typedef struct {
   unsigned int count;
 } QueryCtx;
 
-/* Items are integer ids ((void*)(intptr_t)id); write at most `max`, count all. */
+/* Items are stored 1-BASED ((void*)(intptr_t)(id + 1)): GEOS hands the
+ * stored item back from nearest_generic, and a 0-valued item would be
+ * indistinguishable from the NULL "no answer" return — nearest to item 0
+ * would misreport -1 (audited: the NULL-overload collision). Decode
+ * (item - 1) everywhere an id crosses back to JS. */
 static void shim_query_cb(void *item, void *userdata) {
   QueryCtx *q = (QueryCtx *)userdata;
   if (q->count < q->max)
-    q->out[q->count] = (int32_t)(intptr_t)(uintptr_t)item;
+    q->out[q->count] = (int32_t)(intptr_t)(uintptr_t)item - 1;
   q->count++;
 }
 
@@ -744,9 +771,10 @@ void geos_shim_strtree_table_free(void *table) { free(table); }
 
 /*
  * Distance callback for nearest_generic: map item ids back to geometries;
- * the sentinel id (-1) is the query geometry itself. GEOSDistance_r failure
- * (e.g. an empty geometry has no distance) propagates as 0 = failed, which
- * nearest_generic turns into a GEOS exception -> captured message.
+ * the sentinel id (-1) is the query geometry itself; stored items are
+ * 1-based, so the table index is (item - 1). GEOSDistance_r failure
+ * propagates as 0 = failed, which nearest_generic turns into a GEOS
+ * exception -> captured message -> shim return -2.
  */
 #define SHIM_NEAREST_SENTINEL ((const void *)(uintptr_t)-1)
 
@@ -759,10 +787,12 @@ typedef struct {
 static int shim_nearest_distance_cb(const void *a, const void *b, double *distance,
                                     void *userdata) {
   NearestCtx *n = (NearestCtx *)userdata;
-  const GEOSGeometry *ga =
-      (a == SHIM_NEAREST_SENTINEL) ? n->query : n->table[(size_t)(intptr_t)(uintptr_t)a];
-  const GEOSGeometry *gb =
-      (b == SHIM_NEAREST_SENTINEL) ? n->query : n->table[(size_t)(intptr_t)(uintptr_t)b];
+  const GEOSGeometry *ga = (a == SHIM_NEAREST_SENTINEL)
+                               ? n->query
+                               : n->table[(size_t)(intptr_t)(uintptr_t)a - 1];
+  const GEOSGeometry *gb = (b == SHIM_NEAREST_SENTINEL)
+                               ? n->query
+                               : n->table[(size_t)(intptr_t)(uintptr_t)b - 1];
   return GEOSDistance_r(n->ctx, ga, gb, distance);
 }
 
@@ -770,7 +800,8 @@ static int shim_nearest_distance_cb(const void *a, const void *b, double *distan
  * Nearest item id, or -1 when the tree has no answer, or -2 on failure with
  * a captured message. (The plain GEOSSTRtree_nearest is UNUSABLE with id
  * items — it casts items to GEOSGeometry* to compute distances; see the
- * module comment / decisions.md D16.)
+ * module comment / decisions.md D16. Items are 1-based so a genuine nearest
+ * of id 0 can never collide with the NULL "no answer" return.)
  */
 int geos_shim_strtree_nearest(GeosShim *shim, GEOSSTRtree *tree, const GEOSGeometry *query,
                               GEOSGeometry **table) {
@@ -784,5 +815,5 @@ int geos_shim_strtree_nearest(GeosShim *shim, GEOSSTRtree *tree, const GEOSGeome
                                                    shim_nearest_distance_cb, &n);
   if (!item)
     return t_has_error ? -2 : -1;
-  return (int)(intptr_t)(uintptr_t)item;
+  return (int)(intptr_t)(uintptr_t)item - 1;
 }

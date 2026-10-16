@@ -101,9 +101,7 @@ describe("unionAll strategy agreement (property)", () => {
 
   it("an aligned grid coverage: auto result ≡ explicit coverage result", () =>
     withGeos((geos) => {
-      const rnd = mulberry32(0xbe2504);
-      void rnd;
-      const gs = [];
+      const gs: Geometry[] = [];
       for (let i = 0; i < 4; i++) {
         for (let j = 0; j < 4; j++) {
           gs.push(

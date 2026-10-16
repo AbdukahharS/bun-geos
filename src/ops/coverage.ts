@@ -43,8 +43,8 @@ export function coverageIsValid(
   const coll = collectClone(geos, gs);
   try {
     const edgesOut = new BigUint64Array(1);
-    const r =
-      geos.native.geos.GEOSCoverageIsValid_r(geos.ctx, coll, opts.gapWidth ?? 0, edgesOut) & 0xff;
+    // INT return (1 valid / 0 invalid / 2 exception) — never masked.
+    const r = geos.native.geos.GEOSCoverageIsValid_r(geos.ctx, coll, opts.gapWidth ?? 0, edgesOut);
     if (r === 2) throw geos.fail("GEOSCoverageIsValid_r");
     if (r === 1 || edgesOut[0] === 0n) return { valid: r === 1 };
     const edgesColl = ptrOf(edgesOut[0]!) as unknown as GeomPtr;
@@ -79,25 +79,30 @@ export function coverageClean(
 ): Geometry[] {
   geos.assertOpen("coverageClean()");
   if (gs.length === 0) throw new RangeError("coverageClean: needs at least one geometry");
-  const p = geos.coverageCleanParams(); // pooled; values re-set per call
+  // Pooled params, but ALL values re-set per call: omitted options reset to
+  // the documented defaults (no snapping, no gap width, longest-border merge)
+  // instead of inheriting whatever a previous call left behind (audited
+  // stale-pool bug).
+  const p = geos.coverageCleanParams();
   const ops = geos.native.geos;
-  if (opts.snappingDistance !== undefined) {
-    if (
-      ops.GEOSCoverageCleanParams_setSnappingDistance_r(geos.ctx, p, opts.snappingDistance) === 0
-    ) {
-      throw geos.fail("GEOSCoverageCleanParams_setSnappingDistance_r");
-    }
+  if (
+    ops.GEOSCoverageCleanParams_setSnappingDistance_r(geos.ctx, p, opts.snappingDistance ?? 0) === 0
+  ) {
+    throw geos.fail("GEOSCoverageCleanParams_setSnappingDistance_r");
   }
-  if (opts.gapMaximumWidth !== undefined) {
-    if (ops.GEOSCoverageCleanParams_setGapMaximumWidth_r(geos.ctx, p, opts.gapMaximumWidth) === 0) {
-      throw geos.fail("GEOSCoverageCleanParams_setGapMaximumWidth_r");
-    }
+  if (
+    ops.GEOSCoverageCleanParams_setGapMaximumWidth_r(geos.ctx, p, opts.gapMaximumWidth ?? 0) === 0
+  ) {
+    throw geos.fail("GEOSCoverageCleanParams_setGapMaximumWidth_r");
   }
-  if (opts.overlapStrategy !== undefined) {
-    const id = OverlapMergeStrategy[opts.overlapStrategy];
-    if (ops.GEOSCoverageCleanParams_setOverlapMergeStrategy_r(geos.ctx, p, id) === 0) {
-      throw geos.fail("GEOSCoverageCleanParams_setOverlapMergeStrategy_r");
-    }
+  if (
+    ops.GEOSCoverageCleanParams_setOverlapMergeStrategy_r(
+      geos.ctx,
+      p,
+      OverlapMergeStrategy[opts.overlapStrategy ?? "longestBorder"],
+    ) === 0
+  ) {
+    throw geos.fail("GEOSCoverageCleanParams_setOverlapMergeStrategy_r");
   }
   const coll = collectClone(geos, gs);
   try {

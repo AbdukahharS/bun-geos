@@ -42,16 +42,18 @@ export type {
   LineArray,
   MakeValidParamsPtr,
   Polygonal,
-  PreparedPred,
   PreparedPtr,
   StrTreePtr,
-  UnionStrategy,
 } from "./types.ts";
-// Value+type pairs: one export statement carries both declarations.
+// Value+type pairs: one export statement carries both declarations
+// (PreparedPred/UnionStrategy are exported here as values — users need the
+// numeric ids to pin against the shim ABI).
 export {
   GeoType,
   geoTypeName,
   MakeValidMethod,
   OverlapMergeStrategy,
   PrecisionMode,
+  PreparedPred,
+  UnionStrategy,
 } from "./types.ts";

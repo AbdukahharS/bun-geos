@@ -1,8 +1,9 @@
 /**
  * `STRtree` — Sort-Tile-Recursive packed R-tree over inserted geometries
  * (api-surface §Spatial index). Items stored in the C tree are INTEGER IDS
- * (`(void*)(intptr_t)id`), never geometry pointers (memory.md §2 — the
- * borrowed-pointer rule); a JS-side `Map<id, Geometry>` is the registry.
+ * (1-based `(void*)(intptr_t)(id+1)` — 0 would collide with
+ * `nearest_generic`'s NULL "no answer" return; D16), never geometry
+ * pointers; a JS-side `Map<id, Geometry>` is the registry.
  *
  * `nearest` needs special machinery (D16): GEOS's plain
  * `GEOSSTRtree_nearest` casts items back to `GEOSGeometry*` to compute
@@ -70,6 +71,11 @@ export class STRtree implements Disposable {
    * Insert a geometry; returns its id. Ids are assigned sequentially — for
    * `geos.strtree(geoms)` the id equals the input index. Insertion after
    * `build()` throws: the bound id→geometry table must stay in sync.
+   *
+   * The C tree stores the id 1-BASED: `GEOSSTRtree_nearest_generic_r`'s NULL
+   * "no answer" return would be indistinguishable from a 0-valued item, so
+   * item 0 could never be reported as nearest (audited NULL-overload
+   * collision). The shim decodes (item − 1) on the way out.
    */
   insert(g: Geometry): number {
     this.#assertOpen("insert()");
@@ -80,9 +86,7 @@ export class STRtree implements Disposable {
     }
     g.requireSame(this.geos);
     const id = this.#items.size;
-    // Item = integer id in a pointer-sized slot (memory.md §2: never a
-    // geometry pointer — the tree takes no ownership, ids keep it that way).
-    const item = id as unknown as Pointer;
+    const item = (id + 1) as unknown as Pointer;
     this.geos.native.geos.GEOSSTRtree_insert_r(this.geos.ctx, this.#tree, g.ptr, item);
     this.#items.set(id, g);
     this.#ptrs.push(g.ptr);
@@ -92,13 +96,14 @@ export class STRtree implements Disposable {
 
   /**
    * Build the tree (idempotent; forced implicitly by query/nearest). Binds
-   * the id→geometry table used by `nearest` (D16). Freeze point.
+   * the id→geometry table used by `nearest` (D16). Freeze point. INT return:
+   * 1 ok, 0 exception — never masked.
    */
   build(): void {
     this.#assertOpen("build()");
     if (this.#built) return;
-    const r = this.geos.native.geos.GEOSSTRtree_build_r(this.geos.ctx, this.#tree) & 0xff;
-    if (r === 0) throw this.geos.fail("GEOSSTRtree_build_r");
+    const r = this.geos.native.geos.GEOSSTRtree_build_r(this.geos.ctx, this.#tree);
+    if (r !== 1) throw this.geos.fail("GEOSSTRtree_build_r");
     const ptrs = new BigUint64Array(this.#ptrs.length);
     for (let i = 0; i < this.#ptrs.length; i++) ptrs[i] = BigInt(this.#ptrs[i]!);
     const table = this.geos.native.shim.geos_shim_strtree_bind_geoms(

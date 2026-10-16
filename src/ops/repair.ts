@@ -28,17 +28,22 @@ export interface MakeValidOptions {
 export function makeValid(geos: Geos, g: Geometry, opts: MakeValidOptions = {}): Geometry {
   g.requireSame(geos);
   geos.assertOpen("makeValid()");
-  const p = geos.makeValidParams(); // pooled; values re-set per call
+  // Pooled params, but ALL values re-set per call: omitted options reset to
+  // the documented defaults (linework / no keepCollapsed) instead of
+  // inheriting whatever a previous call left behind (audited stale-pool bug).
+  const p = geos.makeValidParams();
   const ops = geos.native.geos;
-  if (opts.method !== undefined) {
-    if (ops.GEOSMakeValidParams_setMethod_r(geos.ctx, p, MakeValidMethod[opts.method]) === 0) {
-      throw geos.fail("GEOSMakeValidParams_setMethod_r");
-    }
+  if (
+    ops.GEOSMakeValidParams_setMethod_r(geos.ctx, p, MakeValidMethod[opts.method ?? "linework"]) ===
+    0
+  ) {
+    throw geos.fail("GEOSMakeValidParams_setMethod_r");
   }
-  if (opts.keepCollapsed !== undefined) {
-    if (ops.GEOSMakeValidParams_setKeepCollapsed_r(geos.ctx, p, opts.keepCollapsed ? 1 : 0) === 0) {
-      throw geos.fail("GEOSMakeValidParams_setKeepCollapsed_r");
-    }
+  if (
+    ops.GEOSMakeValidParams_setKeepCollapsed_r(geos.ctx, p, opts.keepCollapsed === true ? 1 : 0) ===
+    0
+  ) {
+    throw geos.fail("GEOSMakeValidParams_setKeepCollapsed_r");
   }
   const out = ops.GEOSMakeValidWithParams_r(geos.ctx, g.ptr, p);
   return geos.take("GEOSMakeValidWithParams_r", out as GeomPtr | null);
@@ -132,26 +137,4 @@ export function orientPolygons(geos: Geos, g: Geometry, dir: "ccw" | "cw" = "ccw
     throw geos.fail("GEOSOrientPolygons_r");
   }
   return geos.take("GEOSOrientPolygons_r", clone as GeomPtr);
-}
-
-/** WKT of the first invalidity — the string-shape diagnostics for errors (D21). */
-export function validityDiagnostics(
-  geos: Geos,
-  g: Geometry,
-): { validReason?: string; locationWKT?: string } {
-  const detail = isValidDetail(geos, g);
-  if (detail.valid) return {};
-  const out: { validReason?: string; locationWKT?: string } = {
-    validReason: detail.reason ?? "(no reason reported)",
-  };
-  if (detail.location !== null) out.locationWKT = toWktOrFallback(geos, detail.location);
-  return out;
-}
-
-function toWktOrFallback(geos: Geos, g: Geometry): string {
-  try {
-    return geos.toWKT(g);
-  } catch {
-    return "(location WKT unavailable)";
-  }
 }

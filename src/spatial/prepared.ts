@@ -173,7 +173,9 @@ export class Prepared implements Disposable {
   /**
    * One shim crossing per array (D18): C loop over the prepared predicate,
    * 0/1 into a `Uint8Array`. First GEOS exception aborts with the captured
-   * message — no partial masks. Interrupt-aware between items.
+   * message — no partial masks. Interrupt-aware between items: when a
+   * signal was supplied, an interruption shapes as `op: "aborted"` — the
+   * SAME contract as singular ops (audited inconsistency, fixed).
    */
   #all(name: PredName, bs: readonly Geometry[], opts?: OpOptions): Uint8Array {
     return withSignal(this.geos, opts?.signal, () => {
@@ -189,8 +191,9 @@ export class Prepared implements Disposable {
         out,
       );
       if (r !== 0) {
-        if (r === 2 && opts?.signal?.aborted) throw abortError(opts.signal);
-        throw this.geos.fail(PREPS[name].op);
+        const underlying = this.geos.fail(PREPS[name].op);
+        if (r === 2 && opts?.signal !== undefined) throw abortError(opts.signal, underlying);
+        throw underlying;
       }
       return out;
     });
@@ -241,8 +244,9 @@ export class Prepared implements Disposable {
         out,
       );
       if (r !== 0) {
-        if (r === 2 && opts?.signal?.aborted) throw abortError(opts.signal);
-        throw this.geos.fail("GEOSPreparedRelatePattern_r");
+        const underlying = this.geos.fail("GEOSPreparedRelatePattern_r");
+        if (r === 2 && opts?.signal !== undefined) throw abortError(opts.signal, underlying);
+        throw underlying;
       }
       return out;
     });
