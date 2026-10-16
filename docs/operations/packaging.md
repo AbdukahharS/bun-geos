@@ -137,8 +137,10 @@ touch, what to verify, and the known traps.
 
 1. `@shzd` org exists. Create a **granular access token**: Read & write, scoped to the org's
    packages, shortest practical expiry. Record the type + expiry date HERE:
-   ______ (fill in on creation). If the org's 2FA policy blocks CI use of granular tokens, a
-   classic **Automation** token is the documented alternative (it exists to bypass 2FA for CI).
+   ______ (fill in on creation). **Measured 2026-10-16:** publishing with a granular token
+   against a 2FA-enforced account/org fails with `EOTP` — granular tokens do NOT bypass
+   2FA-enforced publishing; the classic **Automation** token type does (it exists for CI).
+   Use whichever the org's policy permits and record the choice here: ______.
 2. GitHub → repo → **Environments → `release`**: add secret `NPM_TOKEN`; restrict deployments
    to `.github/workflows/release.yml` (tag builds only). Optional: required reviewers.
 3. Local release from a checkout: `export NPM_TOKEN=npm_…` then tag `v<version>` (CI) or
