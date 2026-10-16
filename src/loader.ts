@@ -9,9 +9,18 @@
  *      platform package (or the dev tree).
  *   2. Platform package `@shzd/bun-geos-<os>-<arch>[-gnu|musl]`, libc
  *      self-selected at runtime (Bun's installer ignores the `libc` field —
- *      spike-results F2).
+ *      spike-results F2). `BUN_GEOS_PACKAGE_DIR` overrides the resolution
+ *      to a specific directory (Phase 4: the platform smoke test loads the
+ *      STAGED package before it is ever published).
  *   3. Dev fallback: the repo's `build/native/` tree from
  *      `bun run build:native` (shim.md §4 dev path; cc() is dropped, F7).
+ *
+ * Windows (win32-x64): DLL dependency resolution is preload-based — the
+ * default search path does NOT include a loaded DLL's own directory, so
+ * `geos.dll` (libgeos_c's transitive dependency) and `geos_c.dll` are
+ * dlopened by absolute path BEFORE the shim; the later loads then resolve
+ * their NEEDED names against already-mapped modules. Linux/macOS need none
+ * of this (DT_RPATH/LC_RPATH, F3).
  *
  * `dlopen` throws `TypeError` when the JIT is disabled (Bun 1.4+) — that is
  * surfaced as an actionable LoaderError; there is no JIT-less fallback (D1).
@@ -63,6 +72,16 @@ function platformPackageName(): string {
   return `@shzd/bun-geos-${platform}-${arch}${libc}`;
 }
 
+/**
+ * Test/packaging override: load natives from this directory instead of the
+ * resolved platform package. Phase 4's platform smoke test points this at
+ * the STAGED package tree so artifacts are exercised before publishing.
+ */
+function packageDirOverride(): string | null {
+  const dir = process.env.BUN_GEOS_PACKAGE_DIR;
+  return dir && dir.length > 0 ? dir : null;
+}
+
 /** libgeos_c file name candidates, best first. */
 function geosCLibraryNames(): string[] {
   switch (process.platform) {
@@ -75,8 +94,20 @@ function geosCLibraryNames(): string[] {
   }
 }
 
+/**
+ * The transitive libgeos candidates to PRELOAD before libgeos_c. Windows
+ * only: the DLL search path does not include a loaded DLL's own directory,
+ * so geos.dll must already be mapped (by name) when geos_c.dll binds it.
+ * Linux/macOS resolve transitively through DT_RPATH/LC_RPATH (F3).
+ */
+function geosLibraryNames(): string[] {
+  return process.platform === "win32" ? ["geos.dll"] : [];
+}
+
 /** Resolve the platform package dir, or null when it is not installed. */
 function platformPackageDir(): string | null {
+  const override = packageDirOverride();
+  if (override) return override;
   const pkg = platformPackageName();
   try {
     // Phase 4 layout: binaries at the platform package root.
@@ -97,6 +128,7 @@ function devTreeDir(): string | null {
 function resolveDirs(opts: LoadOptions | undefined): {
   shimDir: string;
   geosCPath: string | undefined;
+  geosPath: string | undefined;
 } {
   const override = opts?.library ?? process.env.BUN_GEOS_LIBRARY;
   const fromPkg = platformPackageDir();
@@ -109,7 +141,16 @@ function resolveDirs(opts: LoadOptions | undefined): {
         `  → run \`bun run build:native\` in a checkout, or reinstall the package`,
     );
   }
-  return { shimDir, geosCPath: override };
+  // Transitive libgeos (Windows preload); absent on other platforms.
+  let geosPath: string | undefined;
+  for (const name of geosLibraryNames()) {
+    const candidate = join(shimDir, name);
+    if (existsSync(candidate)) {
+      geosPath = candidate;
+      break;
+    }
+  }
+  return { shimDir, geosCPath: override, geosPath };
 }
 
 export interface OpenResult {
@@ -139,7 +180,7 @@ export function openLibrary(opts?: LoadOptions): OpenResult {
     return opened;
   }
 
-  const { shimDir, geosCPath } = resolveDirs(opts);
+  const { shimDir, geosCPath, geosPath } = resolveDirs(opts);
   const shimPath = join(shimDir, `shim.${shimSuffix()}`);
   if (!existsSync(shimPath)) {
     throw new LoaderError(`bun-geos: shim not found at ${shimPath}`);
@@ -167,12 +208,17 @@ export function openLibrary(opts?: LoadOptions): OpenResult {
       `bun-geos: libgeos_c not found next to the shim in ${shimDir} — the package is incomplete`,
     );
   }
+  if (geosLibraryNames().length > 0 && !geosPath) {
+    throw new LoaderError(
+      `bun-geos: ${geosLibraryNames().join("/")} not found next to the shim in ${shimDir} — the package is incomplete`,
+    );
+  }
 
   // dlopen throws TypeError when the JIT is disabled (Bun 1.4+) — rethrow
   // with the remediation. There is no JIT-less mode (D1).
   let native: Native;
   try {
-    native = openNative(shimPath, geosCPathResolved);
+    native = openNative(shimPath, geosCPathResolved, geosPath ? [geosPath] : []);
   } catch (err) {
     if (err instanceof TypeError) {
       throw new LoaderError(

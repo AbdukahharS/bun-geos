@@ -296,14 +296,23 @@ export interface Native {
   readonly geos: GeosApi;
 }
 
-/** dlopen both libraries (same-inode dedup makes repeat loads a no-op). */
-export function openNative(shimPath: string, geosCPath: string): Native {
+/**
+ * dlopen the libraries (same-inode dedup makes repeat loads a no-op).
+ *
+ * `preloads` are dlopened BEFORE geos_c — Windows only in practice: the DLL
+ * search path excludes a loaded DLL's own directory, so `geos.dll` must be
+ * mapped (by absolute path → module name) before `geos_c.dll` binds it as a
+ * dependency. On Linux/macOS the list is empty (DT_RPATH/LC_RPATH resolve
+ * transitively, F3).
+ */
+export function openNative(shimPath: string, geosCPath: string, preloads: string[] = []): Native {
   // geos_c FIRST (audit H4): with BUN_GEOS_LIBRARY the override must be the
   // copy the shim's NEEDED soname binds to (F3). Loading the shim first
   // would let its DT_RPATH bind the bundled libgeos_c and then map the
   // override as a SECOND instance — two C++ heaps, cross-copy handles, and
   // a version assert reading the wrong library. Loading geos_c first makes
   // the later shim load reuse the mapped soname in both modes.
+  for (const path of preloads) dlopen(path, {});
   const geosLib = dlopen(geosCPath, GEOS_TABLE);
   const shimLib = dlopen(shimPath, SHIM_TABLE);
   return {
