@@ -124,9 +124,14 @@ function rmSyncSafe(path: string): void {
   }
 }
 
-/** Verify a package resolves on the registry, retrying through CDN lag. */
+/** Verify a package resolves on the registry, retrying through CDN lag.
+ * The schedule leaves ~230 s of total headroom: the v0.1.0 release
+ * (2026-10-17) had a package take longer than the previous ~110 s budget
+ * to become `npm view`-visible after a successful publish — the package
+ * was live minutes later, and only the verify gave up (packaging.md
+ * §7.5, lesson 3). A late-added 120 s final wait absorbs that class. */
 async function verifyResolves(name: string): Promise<void> {
-  const delays = [0, 5_000, 15_000, 30_000, 60_000];
+  const delays = [0, 5_000, 15_000, 30_000, 60_000, 120_000];
   for (let attempt = 0; attempt < delays.length; attempt++) {
     if (attempt > 0) {
       console.log(`release: ${name} not visible yet — retrying in ${delays[attempt]! / 1000}s`);
