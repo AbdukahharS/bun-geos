@@ -116,18 +116,18 @@ consequence note.**
 
 ## Phase 4 — Packaging & release
 
-> **Status: IMPLEMENTED — first real publish pending** (October 2026,
-> GEOS 3.14.1 tarball `3c20919c…`, Bun 1.4.3). The 8-package layout
-> (D6/D7/D26), the release pipeline, and the licensing machinery are in the
-> repo and rehearsed: the verdaccio dry-run passes end-to-end (publish →
-> resolve → clean `bun add` → overlay), the platform smoke passes against a
-> detached staged tree, and the flat-package rpath story is proven on
-> linux-x64-gnu. Shim portability (D4 amendment) + the Windows loader
-> preload order are in; their runner verification happens in the matrix
-> (win32/darwin/musl jobs), which is also where the first real Windows
-> `bun:ffi` evidence will come from. The remaining step is the token-gated
-> `v0.0.1` publish + the install matrix's < 60 s evidence — the runbook
-> ([packaging](operations/packaging.md) §7) holds the checklist.
+> **Status: COMPLETE** (October 2026, GEOS 3.14.1 tarball `3c20919c…`, Bun
+> 1.4.3). The 8-package layout (D6/D7/D26), the release pipeline, and the
+> licensing machinery shipped through **0.0.1 (bootstrap, interactive
+> publish) → 0.1.0 (the first full pipeline release, published via npm
+> trusted publishing/OIDC)**. The install matrix is green: 11 jobs across
+> macOS-14 / ubuntu-24.04 / alpine:3.20 / windows-2022 × bun/npm/pnpm plus
+> the consumption-mode probes (`BUN_GEOS_LIBRARY` mismatch hard-fail,
+> `bun build --compile` embedding), every job 8–35 s — the < 60 s exit
+> criterion is met with margin. The trusted-publishing operations lessons
+> (the `--provenance` requirement, per-package config consistency, the
+> stage-only default, CDN visibility lag vs the verify retry budget) are
+> recorded in [packaging](operations/packaging.md) §7.5.
 
 - CI build matrix producing the 7 platform packages + main package
   ([packaging](operations/packaging.md)).
@@ -165,9 +165,10 @@ classes, timing-asserted); evidence recorded after the first release.
 > batch forms through one new shim surface, corpus-covered from birth);
 > the api-surface target is complete except the deliberately post-0.1
 > curve types. Exit evidence: 257 tests green, spike suite green on the
-> 1.4.3 pin, shim selftest ALL CLEAN under ASan/UBSan. The first 0.1.0
-> tag → publish → install-matrix run is the release runbook's
-> ([packaging](operations/packaging.md) §7.4).
+> 1.4.3 pin, shim selftest ALL CLEAN under ASan/UBSan. **Shipped:
+> `v0.1.0` is on npm** (all 8 packages, published via trusted publishing
+> with provenance; the install matrix is green — see the Phase 4 status
+> block).
 
 - ASan/Valgrind shim gates and soak tests wired into CI.
 - JTS/GEOS XML test corpus as a permanent differential gate.

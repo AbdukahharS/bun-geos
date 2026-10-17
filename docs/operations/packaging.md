@@ -213,7 +213,25 @@ has no credential at all and fails with `ENEEDAUTH` — no OTP error, nothing to
 auth while every package was already on the registry, so trusted publishing had never
 actually executed. **0.0.2 was never published** (the CHANGELOG's 0.0.2 section
 documents repo-side fixes that ship with 0.1.0); the registry's `latest` was 0.0.1 until
-0.1.0. Constraints verified against the npm docs (Oct 2026):
+0.1.0.
+
+**v0.1.0 — the first real OIDC release (2026-10-17), three operational lessons:**
+
+1. **Configs are per-package and must be uniform.** A mistyped organization on ONE
+   package's trusted publisher surfaced as `ENEEDAUTH` on exactly that package's publish
+   (the pipeline fails fast on the first bad one). After fixing one, audit all 8 — same
+   org/repo/workflow/environment, case-sensitive.
+2. **The stage-only default silently "succeeds".** With `Allow npm publish` unticked,
+   `npm publish` exits 0 but the version lands in npm's STAGED state — invisible to
+   `npm view` and to release.ts's registry checks. Two darwin packages staged this way
+   before the configs were fixed; they were published manually from the npm UI. Keep the
+   box TICKED on all 8.
+3. **CDN visibility lag can outrun the verify retry budget.** The main package took
+   longer than the ~110 s of verify retries after publish to become `npm view`-visible,
+   failing the post-publish resolution check — while the package itself was fine and
+   live minutes later. The pipeline is idempotent by design: a rerun of the failed job
+   (all packages skip, verify passes, release notes warn-and-continue) finished green in
+   24 s. If this recurs, extend the retry schedule before touching anything else. Constraints verified against the npm docs (Oct 2026):
 
 - Unvalidated configs expire after **2 days**; the first OIDC publish binds them.
 - Configs are immutable — renaming `release.yml` means deleting + recreating all 8.
