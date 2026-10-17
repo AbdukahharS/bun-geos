@@ -27,7 +27,7 @@ import { dlopen } from "bun:ffi";
 type FFISpec = { readonly args: readonly string[]; readonly returns: string };
 
 /** The C shim (native/shim.c) — the only loop-shaped surface (D4). */
-const SHIM_TABLE = {
+export const SHIM_TABLE = {
   geos_shim_init: { args: [], returns: "ptr" },
   geos_shim_context: { args: ["ptr"], returns: "ptr" },
   geos_shim_finish: { args: ["ptr"], returns: "void" },
@@ -99,7 +99,7 @@ const SHIM_TABLE = {
  * takes the context handle first. `GEOSversion` is the one symbol with no
  * `_r` variant (process-global static string — F6).
  */
-const GEOS_TABLE = {
+export const GEOS_TABLE = {
   // version
   GEOSversion: { args: [], returns: "cstring" },
 

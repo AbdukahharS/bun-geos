@@ -102,9 +102,11 @@ scans **32×** vs unprepared; STRtree queries **122×** vs a naive JS scan; WKB 
 | [Getting started](docs/guide/getting-started.md) | install, first ops, I/O formats, errors |
 | [Memory & disposal](docs/guide/memory-and-disposal.md) | `using`, arenas, stats, the GC backstop |
 | [Workers & parallelism](docs/guide/workers-and-parallelism.md) | thread rules, `geos.parallel`, cancellation |
-| [`docs/decisions.md`](docs/decisions.md) | the decision record (D1–D26) — every architectural choice and why |
+| [API reference](docs/reference/api.md) | every public export — signatures, disposal, errors |
+| [Symbol reference](docs/reference/symbols.md) | the JS ↔ `geos_c` mapping, generated from the source |
+| [`docs/decisions.md`](docs/decisions.md) | the decision record (D1–D28) — every architectural choice and why |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | phases, status, exit criteria |
-| [`docs/design/api-surface.md`](docs/design/api-surface.md) | the full API surface by module group |
+| [`docs/design/api-surface.md`](docs/design/api-surface.md) | the design target by module group |
 | [`docs/operations/`](docs/operations/) | packaging & release, licensing, testing |
 
 ## Known limitations (all deliberate)
