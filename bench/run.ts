@@ -397,6 +397,9 @@ const meta = {
 
 const outDir = join(import.meta.dir, "..", "bench");
 mkdirSync(outDir, { recursive: true });
-writeFileSync(join(outDir, "results.json"), `${JSON.stringify({ ...meta, results }, null, 2)}\n`);
-console.log("written: bench/results.json");
+// bench/check.ts re-runs the suite to a temp file for regression comparison —
+// the committed baseline must never be clobbered by a check run.
+const outPath = process.env.BENCH_RESULTS_OUT ?? join(outDir, "results.json");
+writeFileSync(outPath, `${JSON.stringify({ ...meta, results }, null, 2)}\n`);
+console.log(`written: ${outPath}`);
 geos.dispose();

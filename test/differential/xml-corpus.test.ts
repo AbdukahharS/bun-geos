@@ -9,8 +9,11 @@
  * FIXED precisionModel are emulated by setPrecision(pointwise) on the parsed
  * inputs, matching XMLTester's read-time snapping.
  *
- * Skips (loudly) when the vendored corpus is absent so a checkout without
- * `vendor/geos` still passes — CI requires it.
+ * Skips (loudly) when no corpus tree exists so a bare checkout still passes;
+ * under CI (`CI=true`) a missing corpus is a HARD FAIL — the gate must be
+ * permanent (ROADMAP Phase 5, D29). `build:native` extracts the pinned GEOS
+ * tarball (which carries the identical xmltester tree) to `build/geos-src/`,
+ * so CI never needs the vendored checkout.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -18,15 +21,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Geos } from "../../src/index.ts";
 
-const CORPUS_ROOT = join(
-  import.meta.dir,
-  "..",
-  "..",
-  "vendor",
-  "geos",
-  "tests",
-  "xmltester",
-  "tests",
+const REPO_ROOT = join(import.meta.dir, "..", "..");
+
+/** Corpus candidates, most-preferred first (D29): the vendored spike
+ * checkout, then the CI/dev tarball extraction. Same relative layout. */
+const CORPUS_CANDIDATES = [join(REPO_ROOT, "vendor", "geos"), join(REPO_ROOT, "build", "geos-src")];
+const CORPUS_ROOT = CORPUS_CANDIDATES.map((root) => join(root, "tests", "xmltester", "tests")).find(
+  (dir) => existsSync(join(dir, "general", "TestValid.xml")),
 );
 const FILES = [
   "general/TestValid.xml",
@@ -79,7 +80,25 @@ export function parseFile(file: string, text: string): CorpusCase[] {
   return cases;
 }
 
-const hasCorpus = FILES.every((f) => existsSync(join(CORPUS_ROOT, f)));
+const hasCorpus = CORPUS_ROOT !== undefined && FILES.every((f) => existsSync(join(CORPUS_ROOT, f)));
+/** Join a corpus-relative path; throws (never returns undefined paths) when
+ * no tree was resolved — callers are guarded by `hasCorpus`/the CI check. */
+function corpusPath(...segments: string[]): string {
+  if (CORPUS_ROOT === undefined) {
+    throw new Error(
+      `no xmltester corpus tree resolved (candidates: ${CORPUS_CANDIDATES.join(", ")})`,
+    );
+  }
+  return join(CORPUS_ROOT, ...segments);
+}
+if (!hasCorpus && process.env.CI === "true") {
+  // The gate must be permanent in CI (ROADMAP Phase 5): a missing corpus tree
+  // there means the wiring broke — fail loudly instead of skipping silently.
+  throw new Error(
+    `CI=true but no xmltester corpus found (looked in: ${CORPUS_CANDIDATES.join(", ")}) — ` +
+      `run \`bun run build:native\` or restore vendor/geos`,
+  );
+}
 
 describe.skipIf(!hasCorpus)("XML validity corpus (GEOS/JTS xmltester, pinned 3.14.1)", () => {
   it("isValid / makeValid agree with the published expectations", async () => {
@@ -88,7 +107,7 @@ describe.skipIf(!hasCorpus)("XML validity corpus (GEOS/JTS xmltester, pinned 3.1
     let skipped = 0;
     using geos = new Geos();
     for (const file of FILES) {
-      const text = readFileSync(join(CORPUS_ROOT, file), "utf8");
+      const text = readFileSync(corpusPath(file), "utf8");
       const fixedScale = Number(/<precisionModel[^>]*scale="([\d.]+)"/.exec(text)?.[1] ?? "0");
       for (const c of parseFile(file, text)) {
         for (const op of c.ops) {

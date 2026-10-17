@@ -16,6 +16,7 @@
     "test:spike": "bun test spike/",
     "test:soak": "SOAK_SCALE=large bun test test/soak/",
     "test:native": "gcc -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer test/native/shim_selftest.c build/native/shim.so build/native/libgeos_c.so.1 -o build/native/shim_selftest -Wl,--disable-new-dtags -Wl,-rpath,$PWD/build/native && ./build/native/shim_selftest",
+    "test:native:valgrind": "bun run scripts/test-native-valgrind.ts",
     "test:platform": "bun run scripts/platform-smoke.ts",
     "package:platform": "bun run scripts/package-platform.ts",
     "package:main": "bun run scripts/package-main.ts",
@@ -23,6 +24,7 @@
     "release:dry-run": "bun run scripts/release-dry-run.ts",
     "install:overlay": "bun run scripts/install-overlay.ts",
     "bench": "bun bench/run.ts",
+    "bench:check": "bun bench/check.ts",
     "bench:parallel": "bun bench/parallel.ts",
     "bench:report": "bun bench/report.ts",
     "bench:competitors": "bun bench/competitors/run.ts"
