@@ -143,6 +143,32 @@ classes, timing-asserted); evidence recorded after the first release.
 
 ## Phase 5 — Hardening & polish
 
+> **Status: IMPLEMENTED — the 0.1.0 release** (October 2026, GEOS 3.14.1,
+> Bun 1.4.3). All five roadmap bullets landed, plus the construction-op
+> surface the api-surface target carried: **(1)** the CI gate set is
+> enforced on PRs — the XML corpus differential gate is PERMANENT (8,753
+> ops across general/robust/validate/issue, resolved from the pinned
+> tarball extraction when `vendor/` is absent; hard-fails under CI when
+> missing, D29), the Valgrind memcheck gate joins the ASan selftest (a
+> separate non-sanitized C-driver build), and benchmark regression alerts
+> run on dispatch (`bench/check.ts` — fail >1.5×, warn >1.25×, off-baseline
+> machines run advisory). The nightly leak soak is unchanged. **(2)** the
+> corpus executor covers every op the C API can express; the only
+> sanctioned skip is `densify` (C++-only — permanent, D29). **(3)** the
+> GeoArrow conformance pass shipped tagged shapes v2 with null bitmaps,
+> representable empty MULTI\*, and dense-union collections (D28), pinned
+> byte-for-byte against the reference implementation in both directions.
+> **(4)** `docs/reference/api.md` + the generated
+> `docs/reference/surface` symbol table (196 bindings), enforced fresh by
+> a test; decisions.md open item #3 closed. **(5)** the construction-op
+> surface the phases had left in limbo is IMPLEMENTED (D27 — 25 ops with
+> batch forms through one new shim surface, corpus-covered from birth);
+> the api-surface target is complete except the deliberately post-0.1
+> curve types. Exit evidence: 257 tests green, spike suite green on the
+> 1.4.3 pin, shim selftest ALL CLEAN under ASan/UBSan. The first 0.1.0
+> tag → publish → install-matrix run is the release runbook's
+> ([packaging](operations/packaging.md) §7.4).
+
 - ASan/Valgrind shim gates and soak tests wired into CI.
 - JTS/GEOS XML test corpus as a permanent differential gate.
 - GeoArrow spec conformance pass.

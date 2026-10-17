@@ -3,10 +3,13 @@
 Bun-native TypeScript library wrapping GEOS 3.14 (`bun:ffi` + a small C shim).
 Phase 1 (core), Phase 2 (differentiators: prepared predicates, STRtree,
 unionAll dispatch, repair suite, precision model, interrupt), Phase 3
-(batch ops, worker pool, memory accounting), and Phase 4 (packaging &
-release tooling) are implemented under `src/`, `native/`, and `scripts/`;
-the Phase 0 spike remains under `spike/` as the FFI-semantics regression
-net; research/design/operations docs live in `docs/`.
+(batch ops, worker pool, memory accounting), Phase 4 (packaging &
+release tooling), and Phase 5 (hardening & polish: the complete
+construction-op surface, permanent corpus/Valgrind/benchmark gates,
+GeoArrow shapes v2, reference docs) are implemented under `src/`,
+`native/`, and `scripts/`; the Phase 0 spike remains under `spike/` as
+the FFI-semantics regression net; research/design/operations docs live
+in `docs/`.
 
 ## Layout
 
@@ -24,10 +27,13 @@ scripts/package-*.ts     stage the 8 publish trees → packages/ (gitignored)
 scripts/release.ts       the publish pipeline (token auth; OIDC reserved)
 scripts/release-dry-run.ts  verdaccio end-to-end rehearsal
 scripts/platform-smoke.ts   the per-platform gate against a STAGED tree
+scripts/gen-symbol-reference.ts   `bun run docs:reference` — docs/reference/symbols.md
+scripts/test-native-valgrind.ts   `bun run test:native:valgrind` (Phase 5 gate)
 test/
   unit/ properties/ soak/ differential/   bun test test/
   native/shim_selftest.c                  bun run test:native (ASan/UBSan)
 spike/                   Phase 0 evidence; `bun test spike/` gates Bun bumps
+docs/reference/          api.md (freshness-gated) + symbols.md (generated)
 vendor/, build/          legacy spike checkout + native build tree (gitignored)
 packages/                staged publish trees (gitignored; generated)
 .github/workflows/       ci.yml (dev gate) · release.yml (matrix+publish) ·

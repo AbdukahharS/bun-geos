@@ -7,6 +7,48 @@ version gating.
 Format: Keep a Changelog-ish; semver-ish (0.0.x while the release pipeline hardens; 0.1.0 is
 the Phase-5 hardened release).
 
+## 0.1.0 — Phase 5 (hardening & polish)
+
+The complete api-surface target, permanently gated: 257 tests, an 8.7k-op XML corpus
+differential gate, Valgrind + ASan shim gates, GeoArrow golden-byte conformance, and the
+reference docs.
+
+**Added:**
+
+- The full construction-op surface (D27): `convexHull`, `concaveHull`, `simplify`,
+  `topologyPreserveSimplify`, `clipByRect`, `delaunay`, `constrainedDelaunay`, `voronoi`,
+  `lineMerge` (+`directed`), `lineSubstring`, `offsetCurve`, `sharedPaths`, `snap`,
+  `node`, `buildArea`, `polygonize`, `centroid`, `interiorPoint`, `boundary`,
+  `nearestPoints`, `minimumClearance`/`minimumClearanceLine`,
+  `maximumInscribedCircle`, `largestEmptyCircle`, `clusterDBSCAN` (ids per input,
+  -1 = noise), `gridIntersectionFractions` — with element-wise `*All` batch forms for the
+  loop-shaped ones through one new shim surface (`geos_shim_unary_all` /
+  `geos_shim_binary_all`, selftest-pinned op-id tables).
+- GeoArrow shapes v2 (D28): tagged kinds (the `geoarrow.*` extension-name mapping), Arrow
+  LSB validity bitmaps with batch `nullMode` ("throw"/"skip"), representable empty
+  MULTI\*, dense-union `geometrycollection`. `toArrow` now emits tagged values (breaking
+  vs 0.0.x; legacy untagged input is still accepted). Conformance is pinned byte-for-byte
+  against the reference implementation (`geoarrow-pyarrow`) in both directions.
+- API reference (`docs/reference/api.md`) and a generated symbol table
+  (`docs/reference/symbols.md`, 196 bindings), enforced fresh by a test.
+- Benchmark regression alerts (`bun run bench:check`, a manual-dispatch CI job) and a
+  construction-batch row in the published suite.
+- The XML corpus gate is PERMANENT: 8,753 ops across the general/robust/validate/issue
+  xmltester files run on every PR (resolved from the pinned tarball extraction when
+  `vendor/` is absent; hard-fails under CI when missing — D29). Every op of the shared
+  GEOS/JTS corpus the C API can express is executed; the only sanctioned skip is
+  `densify` (C++-only, no C API).
+
+**Changed:**
+
+- `geos.toArrow` returns tagged shapes (see above).
+- DECISIONS D27–D28 recorded; house rules extended (unary/binary op-id tables, int-return
+  exceptions).
+
+**Gates (CI, per testing.md §5):** lint + typecheck + full tests (incl. the corpus) +
+ASan/UBSan + Valgrind memcheck + spike suite + PostGIS oracle on every PR; nightly
+long-run soak; benchmark regression alerts on dispatch.
+
 ## 0.0.2 — Phase 4 (packaging fixes) — first trusted-published release
 
 **Fixed:**
