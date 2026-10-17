@@ -94,7 +94,17 @@ async function publish(dir: string, name: string): Promise<"published" | "skippe
     writeFileSync(npmrcPath, "//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n");
   }
   try {
-    const res = await $`npm publish --access public`.cwd(dir).quiet().nothrow();
+    // OIDC (trusted publishing) REQUIRES --provenance: it is the flag that
+    // makes npm fetch the GitHub OIDC token (id-token: write) and exchange
+    // it for a short-lived publish credential. Without it npm has no
+    // credential at all and fails with ENEEDAUTH — the v0.1.0 tag run's
+    // failure (2026-10-17). Requirements pinned in packaging.md §7.5:
+    // npm ≥ 11.5.1 (Node 24 in release.yml), environment `release`,
+    // repository.url exact, trusted-publisher config on npmjs.com.
+    const res =
+      auth === "oidc"
+        ? await $`npm publish --access public --provenance`.cwd(dir).quiet().nothrow()
+        : await $`npm publish --access public`.cwd(dir).quiet().nothrow();
     if (res.exitCode !== 0) {
       const stderr = res.stderr.toString().trim();
       throw new Error(`release: npm publish failed for ${name}\n${stderr}`);

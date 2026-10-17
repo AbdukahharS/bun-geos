@@ -49,7 +49,12 @@ reference docs.
 ASan/UBSan + Valgrind memcheck + spike suite + PostGIS oracle on every PR; nightly
 long-run soak; benchmark regression alerts on dispatch.
 
-## 0.0.2 — Phase 4 (packaging fixes) — first trusted-published release
+## 0.0.2 — Phase 4 (packaging fixes) — **never published** (rolled into 0.1.0)
+
+> The 0.0.2 section below documents repo-side fixes that landed after 0.0.1; the
+> registry never received 0.0.2 (its `latest` was 0.0.1 until 0.1.0), and the
+> "first trusted-published release" claim was aspirational — the first real OIDC
+> publish is 0.1.0. The fixes ship with 0.1.0.
 
 **Fixed:**
 

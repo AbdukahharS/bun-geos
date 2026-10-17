@@ -201,7 +201,19 @@ publishers.
 **Steady state (0.0.2+): npm trusted publishing.** Each package's settings on npmjs.com
 carry a trusted publisher: GitHub Actions → org/repo → workflow filename `release.yml` →
 environment `release` → allowed action: direct `npm publish` (post-Sep-2026 configs default
-to stage-only — opt in explicitly). Constraints verified against the npm docs (Oct 2026):
+to stage-only — opt in explicitly).
+
+**The `--provenance` requirement (learned on the v0.1.0 tag run, 2026-10-17):**
+`npm publish` only engages the OIDC flow when run with **`--provenance`** (or
+`NPM_CONFIG_PROVENANCE=true`) — that flag is what makes npm fetch the GitHub OIDC token
+(`id-token: write`) and exchange it for a short-lived publish credential. Without it npm
+has no credential at all and fails with `ENEEDAUTH` — no OTP error, nothing to negotiate.
+`scripts/release.ts --auth oidc` therefore always publishes with `--provenance`. The
+05:17 "successful" release that preceded this was a no-op: it ran at v0.0.1 with token
+auth while every package was already on the registry, so trusted publishing had never
+actually executed. **0.0.2 was never published** (the CHANGELOG's 0.0.2 section
+documents repo-side fixes that ship with 0.1.0); the registry's `latest` was 0.0.1 until
+0.1.0. Constraints verified against the npm docs (Oct 2026):
 
 - Unvalidated configs expire after **2 days**; the first OIDC publish binds them.
 - Configs are immutable — renaming `release.yml` means deleting + recreating all 8.
