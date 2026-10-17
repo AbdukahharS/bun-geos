@@ -295,7 +295,7 @@ describe("audit regressions (C1/C2, Risk 1)", () => {
         hasZ: false,
         hasM: false,
       };
-      expect(() => geos.lengthAll(negativeLine)).toThrow(/increase from 0/);
+      expect(() => geos.lengthAll(negativeLine)).toThrow(/line 0 has -3 positions/);
       expect(geos.stats.liveGeoms).toBe(before);
     }));
 

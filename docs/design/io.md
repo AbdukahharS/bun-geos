@@ -71,16 +71,35 @@ conversions, and (d) trivially structured-cloned to Workers.
   per array) — the fast ingest for exports from databases. **(Phase 3: shipped —
   `geos.fromWKBMany`, with JS-side offset validation; the shim's batch WKB codec.)**
 
-## 5. GeoArrow specifics
+## 5. GeoArrow specifics (shapes v2 — Phase 5, D28)
 
-- The `FlatCoords`/`Polygonal` structures above mirror GeoArrow's interleaved coord
-  buffers + int32/64 offsets; `fromArrow`/`toArrow` validate and (when alignment allows)
-  alias without copying.
-- Structured arrays (one column per geometry) are the target; extension-type metadata
-  follows the spec as of our Phase 5 conformance pass (spec evolution explicitly
-  tracked, since GeoArrow is young).
-- This layer is what makes `unionAll`, prepared-mask scans, and worker chunking nearly
-  free — batch ops accept Arrow arrays natively.
+The interchange values are **tagged, spec-shaped** (`src/types.ts`): `kind`
+names the GeoArrow extension type (`geoarrow.point`, `geoarrow.linestring`,
+`geoarrow.polygon`, `geoarrow.multipoint`, `geoarrow.multilinestring`,
+`geoarrow.multipolygon`, `geoarrow.geometry` for collections), offsets
+mirror the spec's list nesting over the **interleaved** coordinate buffer
+(the spec's coord-fixed-size-list / interop profile), and `validity` is
+the Arrow LSB null bitmap (absent = all-valid).
+
+- **Member rule:** the multi\* kinds' MEMBERS are their leaf geometries —
+  one shape reads as one MULTI\* geometry AND as a batch of n member slots.
+  Point slots may be EMPTY (repeated offset); null slots carry the bitmap.
+- **Empty MULTI\*** are representable (length-0 offsets) and roundtrip.
+- **`geometrycollection`** is the dense-union emulation: `types[i]`/
+  `offsets[i]` address slot i in `children` (homogeneous typed arrays).
+- **Nulls:** `fromArrow` rejects null slots (a singular geometry cannot be
+  null); `geometriesFromArrow` honors `nullMode` — `"throw"` (default)
+  names the slot, `"skip"` omits it (a cardinality change the caller must
+  compensate for). `toArrow` never emits a bitmap (GEOS has no null).
+- **Legacy shapes** (Phase 1 untagged `FlatCoords`/`LineArray`/`Polygonal`)
+  remain accepted everywhere, inferred by shape; `toArrow` emits tagged
+  values only.
+- **Conformance is differential:** golden buffers generated from the
+  reference implementation (`scripts/geoarrow-goldens.py`, geoarrow-pyarrow)
+  pin the canonical struct↔interleaved mapping and offset encodings in
+  `test/differential/geoarrow-goldens.test.ts` — both directions.
+- This layer is what makes `unionAll`, prepared-mask scans, and worker
+  chunking nearly free — batch ops accept Arrow arrays natively.
 
 ## 6. Z and M
 

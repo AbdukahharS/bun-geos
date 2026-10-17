@@ -33,6 +33,27 @@
 > concurrency.md §4. `STRtree.queryFilter(env, prep, pred)` is the fused
 > helper the sketch below pointed at. `statsPrecise()`/`arenaHighWater` per
 > D24.
+>
+> **Phase 5 status (Oct 2026):** the Measures & construction ops section is
+> IMPLEMENTED (D27) — convexHull, concaveHull, simplify,
+> topologyPreserveSimplify, clipByRect, delaunay, constrainedDelaunay,
+> voronoi, lineMerge (+directed), lineSubstring, offsetCurve, sharedPaths,
+> snap, node, buildArea, polygonize, centroid, interiorPoint, boundary,
+> nearestPoints, minimumClearance(+Line), maximumInscribedCircle,
+> largestEmptyCircle, clusterDBSCAN, gridIntersectionFractions. Deviations
+> from the sketch: `maximumInscribedCircle(g, tolerance)` and
+> `largestEmptyCircle(g, tolerance, {boundary?})` take a REQUIRED tolerance
+> (no silent default); `boundary()` lives with the accessors; the
+> loop-shaped construction ops also ship `*All` batch forms
+> (`convexHullAll`, `centroidAll`, `simplifyAll`, `topologyPreserveSimplifyAll`,
+> `clipByRectAll`, `boundaryAll`, `interiorPointAll`, `nodeAll`,
+> `lineMergeAll`, `snapAll`, `sharedPathsAll` — D27). `sharedPaths` is
+> LINEAL-only (GEOS throws on areal inputs). Construction & I/O §: GeoArrow
+> shapes v2 are IMPLEMENTED (D28) — tagged kinds, validity bitmaps with
+> `nullMode`, representable empty MULTI\*, dense-union geometrycollection,
+> golden-byte conformance against the reference implementation; `toArrow`
+> emits tagged values (breaking vs Phase 1, legacy input still accepted).
+> Only remaining API-surface gap: curve types (below — post-0.1 by design).
 
 ## Conventions
 

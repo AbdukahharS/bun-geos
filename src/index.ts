@@ -27,15 +27,22 @@ export type {
   UnpreparedPredName,
 } from "./ops/batch.ts";
 export type { BufferOptions } from "./ops/buffer.ts";
+export type { LargestEmptyCircleOptions } from "./ops/centers.ts";
 export type {
   CoverageCleanOptions,
   CoverageIsValidOptions,
   CoverageSimplifyOptions,
   CoverageValidity,
 } from "./ops/coverage.ts";
+export type {
+  LineMergeOptions,
+  OffsetCurveOptions,
+} from "./ops/lines.ts";
 export type { UnionAllOptions, UnionAllStrategy } from "./ops/overlay.ts";
 export type { SetPrecisionOptions } from "./ops/precision.ts";
 export type { MakeValidOptions, SimpleDetail, ValidityDetail } from "./ops/repair.ts";
+export type { ConcaveHullOptions } from "./ops/simplify.ts";
+export type { DelaunayOptions, VoronoiOptions } from "./ops/triangulate.ts";
 export { GeosParallelError, type ParallelOptions } from "./parallel/pool.ts";
 export type {
   BufferParams,
@@ -46,14 +53,22 @@ export { Prepared } from "./spatial/prepared.ts";
 export { type PreparedPredName, STRtree } from "./spatial/strtree.ts";
 export type {
   ArrowArray,
+  ArrowInput,
   ByteOrder,
   CollectionKind,
   CoverageCleanParamsPtr,
   FlatCoords,
   GeoTypeId,
+  GeometryCollectionArray,
   LineArray,
+  LineStringArray,
   MakeValidParamsPtr,
+  MultiLineStringArray,
+  MultiPointArray,
+  MultiPolygonArray,
+  PointArray,
   Polygonal,
+  PolygonArray,
   PreparedPtr,
   StrTreePtr,
 } from "./types.ts";
@@ -61,6 +76,7 @@ export type {
 // (PreparedPred/UnionStrategy and the Phase 3 op tables are exported here as
 // values — users need the numeric ids to pin against the shim ABI).
 export {
+  BinaryOp,
   GeoType,
   geoTypeName,
   MakeValidMethod,
@@ -69,6 +85,7 @@ export {
   OverlayOp,
   PrecisionMode,
   PreparedPred,
+  UnaryOp,
   UnionStrategy,
   UnpreparedPred,
 } from "./types.ts";

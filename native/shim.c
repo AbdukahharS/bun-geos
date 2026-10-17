@@ -153,6 +153,24 @@ extern int GEOSHausdorffDistance_r(GEOSContextHandle_t, const GEOSGeometry *, co
 extern int GEOSFrechetDistance_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *,
                                  double *);
 
+/* Phase 5 construction batch ops (D27): only what unary_call/binary_call
+ * dispatch to — everything else stays bound in TS (src/symbols.ts). */
+extern GEOSGeometry *GEOSConvexHull_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern GEOSGeometry *GEOSSimplify_r(GEOSContextHandle_t, const GEOSGeometry *, double);
+extern GEOSGeometry *GEOSTopologyPreserveSimplify_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                                    double);
+extern GEOSGeometry *GEOSGetCentroid_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern GEOSGeometry *GEOSBoundary_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern GEOSGeometry *GEOSPointOnSurface_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern GEOSGeometry *GEOSNode_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern GEOSGeometry *GEOSLineMerge_r(GEOSContextHandle_t, const GEOSGeometry *);
+extern GEOSGeometry *GEOSClipByRect_r(GEOSContextHandle_t, const GEOSGeometry *, double, double,
+                                      double, double);
+extern GEOSGeometry *GEOSSnap_r(GEOSContextHandle_t, const GEOSGeometry *, const GEOSGeometry *,
+                                double);
+extern GEOSGeometry *GEOSSharedPaths_r(GEOSContextHandle_t, const GEOSGeometry *,
+                                       const GEOSGeometry *);
+
 extern GEOSGeometry *GEOSBufferWithParams_r(GEOSContextHandle_t, const GEOSGeometry *,
                                             const GEOSBufferParams *, double);
 extern GEOSGeometry *GEOSWKBReader_read_r(GEOSContextHandle_t, GEOSWKBReader *reader,
@@ -1074,6 +1092,134 @@ int geos_shim_pred_all(GeosShim *shim, int predId, const GEOSGeometry *a, GEOSGe
     if (r == 2)
       return 1; /* GEOS message already captured */
     out[i] = (uint8_t)(r == 1);
+  }
+  return 0;
+}
+
+/* ------------------------------------------------------- unary batch ops
+ * Phase 5 (D27): one shim call per array for the loop-shaped construction
+ * ops (hulls, simplification, clipping, centroid/boundary/interior point,
+ * node, line merge). Op ids must match UnaryOp in src/types.ts; the numeric
+ * values are pinned by selftest scenarios. `d1..d4` carry each op's scalar
+ * params (simplify tolerance, clip rectangle); unused ids ignore them.
+ */
+enum {
+  SHIM_UNARY_CONVEX_HULL = 0,
+  SHIM_UNARY_SIMPLIFY_DP,
+  SHIM_UNARY_SIMPLIFY_TP,
+  SHIM_UNARY_CENTROID,
+  SHIM_UNARY_BOUNDARY,
+  SHIM_UNARY_INTERIOR_POINT,
+  SHIM_UNARY_NODE,
+  SHIM_UNARY_LINE_MERGE,
+  SHIM_UNARY_CLIP_BY_RECT
+};
+
+static GEOSGeometry *unary_call(int opId, GEOSContextHandle_t ctx, const GEOSGeometry *g, double d1,
+                                double d2, double d3, double d4) {
+  switch (opId) {
+  case SHIM_UNARY_CONVEX_HULL:
+    return GEOSConvexHull_r(ctx, g);
+  case SHIM_UNARY_SIMPLIFY_DP:
+    return GEOSSimplify_r(ctx, g, d1);
+  case SHIM_UNARY_SIMPLIFY_TP:
+    return GEOSTopologyPreserveSimplify_r(ctx, g, d1);
+  case SHIM_UNARY_CENTROID:
+    return GEOSGetCentroid_r(ctx, g);
+  case SHIM_UNARY_BOUNDARY:
+    return GEOSBoundary_r(ctx, g);
+  case SHIM_UNARY_INTERIOR_POINT:
+    return GEOSPointOnSurface_r(ctx, g);
+  case SHIM_UNARY_NODE:
+    return GEOSNode_r(ctx, g);
+  case SHIM_UNARY_LINE_MERGE:
+    return GEOSLineMerge_r(ctx, g);
+  case SHIM_UNARY_CLIP_BY_RECT:
+    return GEOSClipByRect_r(ctx, g, d1, d2, d3, d4);
+  default:
+    shim_set_error("unary_all: unknown op id %d", opId);
+    return NULL;
+  }
+}
+
+/*
+ * Element-wise unary construction ops: out[i] = op(gs[i]). Inputs are
+ * borrowed; outputs are NEW owned geometries. First failure destroys every
+ * output produced so far (D18 contract; interrupt checks between items).
+ */
+int geos_shim_unary_all(GeosShim *shim, int opId, GEOSGeometry **gs, unsigned int n, double d1,
+                        double d2, double d3, double d4, GEOSGeometry **out) {
+  if (!shim || (!gs && n > 0) || (!out && n > 0)) {
+    shim_set_error("unary_all: invalid arguments (shim=%p gs=%p out=%p n=%u)", (void *)shim,
+                   (void *)gs, (void *)out, n);
+    return 1;
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("unary_all: interrupted by request");
+      destroy_partials(shim, out, i);
+      return 2;
+    }
+    if (!gs[i]) {
+      shim_set_error("unary_all: NULL geometry at index %u", i);
+      destroy_partials(shim, out, i);
+      return 1;
+    }
+    out[i] = unary_call(opId, shim->ctx, gs[i], d1, d2, d3, d4);
+    if (!out[i]) {
+      destroy_partials(shim, out, i); /* GEOS message already captured */
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* ----------------------------------------------------- binary batch ops
+ * Phase 5 (D27): out[i] = op(a, gs[i]) for the 2-ary construction ops.
+ * Op ids must match BinaryOp in src/types.ts. `d1` carries the snap
+ * tolerance for SHIM_BINARY_SNAP; shared-paths ignores it.
+ */
+enum {
+  SHIM_BINARY_SNAP = 0,
+  SHIM_BINARY_SHARED_PATHS
+};
+
+static GEOSGeometry *binary_call(int opId, GEOSContextHandle_t ctx, const GEOSGeometry *a,
+                                 const GEOSGeometry *b, double d1) {
+  switch (opId) {
+  case SHIM_BINARY_SNAP:
+    return GEOSSnap_r(ctx, a, b, d1);
+  case SHIM_BINARY_SHARED_PATHS:
+    return GEOSSharedPaths_r(ctx, a, b);
+  default:
+    shim_set_error("binary_all: unknown op id %d", opId);
+    return NULL;
+  }
+}
+
+int geos_shim_binary_all(GeosShim *shim, int opId, const GEOSGeometry *a, GEOSGeometry **gs,
+                         unsigned int n, double d1, GEOSGeometry **out) {
+  if (!shim || (!a && n > 0) || (!gs && n > 0) || (!out && n > 0)) {
+    shim_set_error("binary_all: invalid arguments (shim=%p a=%p gs=%p out=%p n=%u)", (void *)shim,
+                   (const void *)a, (void *)gs, (void *)out, n);
+    return 1;
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    if (shim_get_interrupt()) {
+      shim_set_error("binary_all: interrupted by request");
+      destroy_partials(shim, out, i);
+      return 2;
+    }
+    if (!gs[i]) {
+      shim_set_error("binary_all: NULL geometry at index %u", i);
+      destroy_partials(shim, out, i);
+      return 1;
+    }
+    out[i] = binary_call(opId, shim->ctx, a, gs[i], d1);
+    if (!out[i]) {
+      destroy_partials(shim, out, i); /* GEOS message already captured */
+      return 1;
+    }
   }
   return 0;
 }

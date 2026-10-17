@@ -139,8 +139,120 @@ export interface LineArray {
   hasM: boolean;
 }
 
-/** GeoArrow-shaped interchange values accepted by `fromArrow` / `toArrow` (Phase 1). */
-export type ArrowArray = FlatCoords | LineArray | Polygonal;
+/* ── Phase 5 GeoArrow shapes v2 (io.md §5, D28) ───────────────────────────
+ * Tagged, spec-shaped interchange values: `kind` names the GeoArrow
+ * extension type (`geoarrow.<kind>`), offsets mirror the spec's list
+ * nesting, and `validity` is the Arrow LSB bitmap (1 = non-null slot,
+ * absent = all-valid). The Phase 1 untagged shapes (FlatCoords/LineArray/
+ * Polygonal) remain accepted as LEGACY input — inferred by shape — and
+ * `toArrow` emits only tagged values. */
+
+/** A null-slot bitmap in Arrow canonical form (LSB-first; absent = all-valid). */
+export type ArrowValidity = Uint8Array;
+
+/** geoarrow.point — one geometry. */
+export interface PointArray {
+  kind: "point";
+  coords: Float64Array;
+  hasZ: boolean;
+  hasM: boolean;
+}
+
+/** geoarrow.linestring — one geometry. */
+export interface LineStringArray {
+  kind: "linestring";
+  coords: Float64Array;
+  /** End-index of the line, in coordinates. Length 1. */
+  lineOffsets: Int32Array;
+  hasZ: boolean;
+  hasM: boolean;
+}
+
+/** geoarrow.polygon — one geometry. */
+export interface PolygonArray {
+  kind: "polygon";
+  coords: Float64Array;
+  /** End-index of each ring, in coordinates. */
+  ringOffsets: Int32Array;
+  hasZ: boolean;
+  hasM: boolean;
+}
+
+/** geoarrow.multipoint — members are the points. */
+export interface MultiPointArray {
+  kind: "multipoint";
+  coords: Float64Array;
+  /** End-coordinate-slot of each point. Length 0 → MULTIPOINT EMPTY. */
+  pointOffsets: Int32Array;
+  hasZ: boolean;
+  hasM: boolean;
+  validity?: ArrowValidity;
+}
+
+/**
+ * geoarrow.multilinestring — members are the linestrings (a single
+ * geometry reads all members as one MULTILINESTRING; a batch treats each
+ * member as one slot, so a batch of multi-members is not representable —
+ * pass `Geometry[]` for that).
+ */
+export interface MultiLineStringArray {
+  kind: "multilinestring";
+  coords: Float64Array;
+  /** End-index of each member line, in coordinates. Length 0 → EMPTY. */
+  lineOffsets: Int32Array;
+  hasZ: boolean;
+  hasM: boolean;
+  validity?: ArrowValidity;
+}
+
+/**
+ * geoarrow.multipolygon — members are the polygons (a single geometry
+ * reads all members as one MULTIPOLYGON; a batch treats each member as
+ * one slot).
+ */
+export interface MultiPolygonArray {
+  kind: "multipolygon";
+  coords: Float64Array;
+  /** End-index of each ring, in coordinates (concatenated across members). */
+  ringOffsets: Int32Array;
+  /** End-ring of each member polygon. Length 0 → EMPTY. */
+  partOffsets: Int32Array;
+  hasZ: boolean;
+  hasM: boolean;
+  validity?: ArrowValidity;
+}
+
+/**
+ * geoarrow.geometry — the dense-union emulation: slot i lives in child
+ * `types[i]` at position `offsets[i]`. Children are homogeneous typed
+ * arrays (any of the six above, in any order); empty children may be
+ * omitted. `hasZ`/`hasM` are per-child.
+ */
+export interface GeometryCollectionArray {
+  kind: "geometrycollection";
+  /** Child index per slot (dense-union type ids). */
+  types: Int32Array;
+  /** Position within the child per slot. */
+  offsets: Int32Array;
+  children: ArrowArray[];
+  validity?: ArrowValidity;
+}
+
+/** Tagged GeoArrow shapes v2 — what `toArrow` emits and `fromArrow` accepts. */
+export type ArrowArray =
+  | PointArray
+  | LineStringArray
+  | PolygonArray
+  | MultiPointArray
+  | MultiLineStringArray
+  | MultiPolygonArray
+  | GeometryCollectionArray;
+
+/** Legacy (Phase 1) untagged shapes — still accepted, inferred by shape. */
+export type LegacyArrow = FlatCoords | LineArray | Polygonal;
+
+/** Everything the Arrow I/O and batch entry points accept. */
+export type ArrowInput = ArrowArray | LegacyArrow;
 
 /** WKB byte order (GEOS_WKB_XDR = big-endian, GEOS_WKB_NDR = little-endian). */
 export type ByteOrder = "little" | "big";
@@ -239,3 +351,27 @@ export const MeasureOp = {
   frechet: 4,
 } as const;
 export type MeasureOp = (typeof MeasureOp)[keyof typeof MeasureOp];
+
+/**
+ * `geos_shim_unary_all` (Phase 5 construction batch, D27) ids — MUST match
+ * `SHIM_UNARY_*` in the shim; pinned by known-answer selftests.
+ */
+export const UnaryOp = {
+  convexHull: 0,
+  simplifyDP: 1,
+  simplifyTP: 2,
+  centroid: 3,
+  boundary: 4,
+  interiorPoint: 5,
+  node: 6,
+  lineMerge: 7,
+  clipByRect: 8,
+} as const;
+export type UnaryOp = (typeof UnaryOp)[keyof typeof UnaryOp];
+
+/** `geos_shim_binary_all` ids — MUST match `SHIM_BINARY_*` in the shim. */
+export const BinaryOp = {
+  snap: 0,
+  sharedPaths: 1,
+} as const;
+export type BinaryOp = (typeof BinaryOp)[keyof typeof BinaryOp];

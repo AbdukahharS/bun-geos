@@ -69,6 +69,12 @@ const SHIM_TABLE = {
     returns: "i32",
   },
   geos_shim_pred_all: { args: ["ptr", "i32", "ptr", "ptr", "u32", "ptr"], returns: "i32" },
+  // Phase 5 construction batches (D27): out[i] = op(gs[i]) / op(a, gs[i])
+  geos_shim_unary_all: {
+    args: ["ptr", "i32", "ptr", "u32", "f64", "f64", "f64", "f64", "ptr"],
+    returns: "i32",
+  },
+  geos_shim_binary_all: { args: ["ptr", "i32", "ptr", "ptr", "u32", "f64", "ptr"], returns: "i32" },
   geos_shim_measure_all: { args: ["ptr", "i32", "ptr", "ptr", "u32", "ptr"], returns: "i32" },
   geos_shim_buffer_all: { args: ["ptr", "ptr", "f64", "ptr", "u32", "ptr"], returns: "i32" },
   geos_shim_read_wkb_many: { args: ["ptr", "ptr", "ptr", "ptr", "u32", "ptr"], returns: "i32" },
@@ -277,6 +283,49 @@ const GEOS_TABLE = {
   GEOSDifferencePrec_r: { args: ["ptr", "ptr", "ptr", "f64"], returns: "ptr" },
   GEOSSymDifferencePrec_r: { args: ["ptr", "ptr", "ptr", "f64"], returns: "ptr" },
   GEOSUnaryUnionPrec_r: { args: ["ptr", "ptr", "f64"], returns: "ptr" },
+
+  // ===== Phase 5 construction ops =====
+  // hulls, simplification, clipping
+  GEOSConvexHull_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSConcaveHull_r: { args: ["ptr", "ptr", "f64", "i32"], returns: "ptr" },
+  GEOSSimplify_r: { args: ["ptr", "ptr", "f64"], returns: "ptr" },
+  GEOSTopologyPreserveSimplify_r: { args: ["ptr", "ptr", "f64"], returns: "ptr" },
+  GEOSClipByRect_r: { args: ["ptr", "ptr", "f64", "f64", "f64", "f64"], returns: "ptr" },
+  // triangulations
+  GEOSDelaunayTriangulation_r: { args: ["ptr", "ptr", "f64", "i32"], returns: "ptr" },
+  GEOSConstrainedDelaunayTriangulation_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSVoronoiDiagram_r: { args: ["ptr", "ptr", "ptr", "f64", "i32"], returns: "ptr" },
+  // line ops
+  GEOSLineMerge_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSLineMergeDirected_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSLineSubstring_r: { args: ["ptr", "ptr", "f64", "f64"], returns: "ptr" },
+  GEOSOffsetCurve_r: { args: ["ptr", "ptr", "f64", "i32", "i32", "f64"], returns: "ptr" },
+  GEOSSharedPaths_r: { args: ["ptr", "ptr", "ptr"], returns: "ptr" },
+  GEOSSnap_r: { args: ["ptr", "ptr", "ptr", "f64"], returns: "ptr" },
+  // topology building
+  GEOSNode_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSBuildArea_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSPolygonize_r: { args: ["ptr", "ptr", "u32"], returns: "ptr" },
+  // accessors & derived points
+  GEOSGetCentroid_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSBoundary_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSPointOnSurface_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  // returns a GEOSCoordSequence* (2 points) — caller destroys it
+  GEOSNearestPoints_r: { args: ["ptr", "ptr", "ptr"], returns: "ptr" },
+  // clearance & circles
+  GEOSMinimumClearance_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  GEOSMinimumClearanceLine_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSMaximumInscribedCircle_r: { args: ["ptr", "ptr", "f64"], returns: "ptr" },
+  GEOSLargestEmptyCircle_r: { args: ["ptr", "ptr", "ptr", "f64"], returns: "ptr" },
+  // clustering (ClusterInfo*) + grids
+  GEOSClusterDBSCAN_r: { args: ["ptr", "ptr", "f64", "u32"], returns: "ptr" },
+  GEOSClusterInfo_destroy_r: { args: ["ptr", "ptr"], returns: "void" },
+  // returns a GEOS-owned size_t* (per-input cluster id; SIZE_MAX = noise)
+  GEOSClusterInfo_getClustersForInputs_r: { args: ["ptr", "ptr"], returns: "ptr" },
+  GEOSGridIntersectionFractions_r: {
+    args: ["ptr", "ptr", "f64", "f64", "f64", "f64", "u32", "u32", "ptr"],
+    returns: "i32",
+  },
 } as const satisfies Record<string, FFISpec>;
 
 export type ShimSpecs = typeof SHIM_TABLE;

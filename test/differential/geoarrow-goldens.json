@@ -1,0 +1,188 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "name": "point-1",
+      "wkt": ["POINT (30 10)"],
+      "extension": "geoarrow.point",
+      "shape": "point",
+      "coord": {
+        "x": "0000000000003e40",
+        "y": "0000000000002440"
+      },
+      "levels": []
+    },
+    {
+      "name": "point-2",
+      "wkt": ["POINT (30 10)", "POINT (10 30)"],
+      "extension": "geoarrow.point",
+      "shape": "point",
+      "coord": {
+        "x": "0000000000003e400000000000002440",
+        "y": "00000000000024400000000000003e40"
+      },
+      "levels": []
+    },
+    {
+      "name": "linestring-1",
+      "wkt": ["LINESTRING (0 0, 1 1, 2 2)"],
+      "extension": "geoarrow.linestring",
+      "shape": "linestring",
+      "coord": {
+        "x": "0000000000000000000000000000f03f0000000000000040",
+        "y": "0000000000000000000000000000f03f0000000000000040"
+      },
+      "levels": [
+        {
+          "offsets": "0000000003000000",
+          "validity": null
+        }
+      ]
+    },
+    {
+      "name": "linestring-2",
+      "wkt": ["LINESTRING (0 0, 1 1)", "LINESTRING (2 2, 3 3, 4 4)"],
+      "extension": "geoarrow.linestring",
+      "shape": "linestring",
+      "coord": {
+        "x": "0000000000000000000000000000f03f000000000000004000000000000008400000000000001040",
+        "y": "0000000000000000000000000000f03f000000000000004000000000000008400000000000001040"
+      },
+      "levels": [
+        {
+          "offsets": "000000000200000005000000",
+          "validity": null
+        }
+      ]
+    },
+    {
+      "name": "polygon-1",
+      "wkt": ["POLYGON ((0 0, 4 0, 4 4, 0 4, 0 0), (1 1, 2 1, 1 2, 1 1))"],
+      "extension": "geoarrow.polygon",
+      "shape": "polygon",
+      "coord": {
+        "x": "00000000000000000000000000001040000000000000104000000000000000000000000000000000000000000000f03f0000000000000040000000000000f03f000000000000f03f",
+        "y": "00000000000000000000000000000000000000000000104000000000000010400000000000000000000000000000f03f000000000000f03f0000000000000040000000000000f03f"
+      },
+      "levels": [
+        {
+          "offsets": "0000000002000000",
+          "validity": null
+        },
+        {
+          "offsets": "000000000500000009000000",
+          "validity": null
+        }
+      ]
+    },
+    {
+      "name": "polygon-2",
+      "wkt": ["POLYGON ((0 0, 1 0, 0 1, 0 0))", "POLYGON ((2 0, 3 0, 2 1, 2 0))"],
+      "extension": "geoarrow.polygon",
+      "shape": "polygon",
+      "coord": {
+        "x": "0000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000084000000000000000400000000000000040",
+        "y": "00000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000000000000000000f03f0000000000000000"
+      },
+      "levels": [
+        {
+          "offsets": "000000000100000002000000",
+          "validity": null
+        },
+        {
+          "offsets": "000000000400000008000000",
+          "validity": null
+        }
+      ]
+    },
+    {
+      "name": "multipoint-1",
+      "wkt": ["MULTIPOINT ((0 0), (2 2), (4 4))"],
+      "extension": "geoarrow.multipoint",
+      "shape": "multipoint",
+      "coord": {
+        "x": "000000000000000000000000000000400000000000001040",
+        "y": "000000000000000000000000000000400000000000001040"
+      },
+      "levels": [
+        {
+          "offsets": "0000000003000000",
+          "validity": null
+        }
+      ]
+    },
+    {
+      "name": "multipoint-null",
+      "wkt": ["MULTIPOINT EMPTY"],
+      "extension": "geoarrow.multipoint",
+      "shape": "multipoint",
+      "coord": {
+        "x": "",
+        "y": ""
+      },
+      "levels": [
+        {
+          "offsets": "00000000",
+          "validity": null
+        }
+      ]
+    },
+    {
+      "name": "multilinestring-1",
+      "wkt": ["MULTILINESTRING ((0 0, 1 1), (2 2, 3 3))"],
+      "extension": "geoarrow.multilinestring",
+      "shape": "multilinestring",
+      "coord": {
+        "x": "0000000000000000000000000000f03f00000000000000400000000000000840",
+        "y": "0000000000000000000000000000f03f00000000000000400000000000000840"
+      },
+      "levels": [
+        {
+          "offsets": "0000000002000000",
+          "validity": null
+        },
+        {
+          "offsets": "000000000200000004000000",
+          "validity": null
+        }
+      ]
+    },
+    {
+      "name": "multipolygon-1",
+      "wkt": ["MULTIPOLYGON (((0 0, 1 0, 0 1, 0 0)), ((2 0, 3 0, 2 1, 2 0)))"],
+      "extension": "geoarrow.multipolygon",
+      "shape": "multipolygon",
+      "coord": {
+        "x": "0000000000000000000000000000f03f000000000000000000000000000000000000000000000040000000000000084000000000000000400000000000000040",
+        "y": "00000000000000000000000000000000000000000000f03f000000000000000000000000000000000000000000000000000000000000f03f0000000000000000"
+      },
+      "levels": [
+        {
+          "offsets": "0000000002000000",
+          "validity": null
+        },
+        {
+          "offsets": "000000000100000002000000",
+          "validity": null
+        },
+        {
+          "offsets": "000000000400000008000000",
+          "validity": null
+        }
+      ]
+    },
+    {
+      "name": "point-with-null",
+      "wkt": ["POINT (5 5)"],
+      "extension": "geoarrow.point",
+      "shape": "point",
+      "coord": {
+        "x": "0000000000001440000000000000f87f",
+        "y": "0000000000001440000000000000f87f"
+      },
+      "levels": [],
+      "struct_validity": "01",
+      "slots": 2
+    }
+  ]
+}

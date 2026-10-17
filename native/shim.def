@@ -11,6 +11,7 @@
 ;   bun run scripts/native/def.ts --write
 LIBRARY shim
 EXPORTS
+	geos_shim_binary_all
 	geos_shim_buffer_all
 	geos_shim_build_collection
 	geos_shim_build_linestring
@@ -42,4 +43,5 @@ EXPORTS
 	geos_shim_strtree_query
 	geos_shim_strtree_query_prepared
 	geos_shim_strtree_table_free
+	geos_shim_unary_all
 	geos_shim_union_all

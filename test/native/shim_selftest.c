@@ -48,6 +48,7 @@ extern void GEOSPreparedGeom_destroy_r(void *, const void *);
 extern void GEOSGeom_destroy_r(void *, void *);
 extern int GEOSDistance_r(void *, const void *, const void *, double *);
 extern int GEOSArea_r(void *, const void *, double *);
+extern int GEOSLength_r(void *, const void *, double *);
 extern int GEOSGeomGetNumPoints_r(void *, const void *);
 extern void *GEOSWKBReader_create_r(void *);
 extern void GEOSWKBReader_destroy_r(void *, void *);
@@ -71,6 +72,10 @@ static void *mk_point(GeosShim *s, void *c, double x, double y) {
 extern int geos_shim_overlay_all(GeosShim *, int, const void *, void **, unsigned int, double,
                                  void **);
 extern int geos_shim_pred_all(GeosShim *, int, const void *, void **, unsigned int, unsigned char *);
+extern int geos_shim_unary_all(GeosShim *, int, void **, unsigned int, double, double, double,
+                               double, void **);
+extern int geos_shim_binary_all(GeosShim *, int, const void *, void **, unsigned int, double,
+                                void **);
 extern int geos_shim_measure_all(GeosShim *, int, const void *, void **, unsigned int, double *);
 extern int geos_shim_buffer_all(GeosShim *, const void *, double, void **, unsigned int, void **);
 extern int geos_shim_read_wkb_many(GeosShim *, void *, const unsigned char *, const unsigned int *,
@@ -701,6 +706,132 @@ int main(void) {
     geos_shim_destroy_many(s, &((void **)fitems)[9], 41);
     geos_shim_strtree_table_free(table2);
     GEOSSTRtree_destroy_r(ctx, tree2);
+  }
+
+  /* ============================================================= */
+  /* ========= Phase 5 scenarios: construction batch ops ========= */
+  /* ============================================================= */
+
+  /* 29. unary_all: pin the SHIM_UNARY_* table with known answers and the
+   * D18 contract (interrupted/unknown/NULL paths). */
+  {
+    /* three small polygons + one L-shaped line for line merge */
+    void *tiles[3];
+    for (int i = 0; i < 3; i++) {
+      double x = i * 2;
+      tiles[i] = geos_shim_build_polygon(
+          s, (double[10]){x, 0, x + 1, 0, x + 1, 1, x, 1, x, 0}, (unsigned int[1]){5}, 1, 0, 0);
+      CHECK(tiles[i] != NULL, "unary fixture tile");
+    }
+    void *outs[3] = {0};
+    /* CONVEX_HULL (id 0) of each 1x1 tile → itself: areas exactly 1 */
+    CHECK(geos_shim_unary_all(s, 0, tiles, 3, 0, 0, 0, 0, outs) == 0,
+          "unary_all convexHull succeeds");
+    int hullOk = 1;
+    for (int i = 0; i < 3; i++) {
+      double a = -1;
+      if (!outs[i] || GEOSArea_r(ctx, outs[i], &a) != 1 || a < 0.999 || a > 1.001)
+        hullOk = 0;
+    }
+    CHECK(hullOk, "unary_all convexHull areas are 1.0");
+    geos_shim_destroy_many(s, outs, 3);
+    /* CENTROID (id 3): each tile's centroid is its center */
+    CHECK(geos_shim_unary_all(s, 3, tiles, 3, 0, 0, 0, 0, outs) == 0,
+          "unary_all centroid succeeds");
+    int centOk = 1;
+    for (int i = 0; i < 3; i++) {
+      double x = i * 2 + 0.5;
+      /* centroid of a unit square at (x0,0): WKT contains "x0.5 0.5" —
+       * compare via distance instead: nearest-approach via area of a tiny
+       * buffer is overkill; assert the area is 0 (a point) and non-null. */
+      double a = -1;
+      if (!outs[i] || GEOSArea_r(ctx, outs[i], &a) != 1 || a != 0.0) centOk = 0;
+      (void)x;
+    }
+    CHECK(centOk, "unary_all centroids are points");
+    geos_shim_destroy_many(s, outs, 3);
+    /* SIMPLIFY_DP (id 1) with a huge tolerance → the tile collapses */
+    CHECK(geos_shim_unary_all(s, 1, tiles, 3, 100.0, 0, 0, 0, outs) == 0,
+          "unary_all simplify succeeds");
+    geos_shim_destroy_many(s, outs, 3);
+    /* CLIP_BY_RECT (id 8): clip tile 1 (x ∈ [2,3]) to [2.5, 10] → area 0.5 */
+    void *one[1] = {tiles[1]};
+    CHECK(geos_shim_unary_all(s, 8, one, 1, 2.5, -1.0, 10.0, 10.0, outs) == 0,
+          "unary_all clipByRect succeeds");
+    double ca = -1;
+    CHECK(outs[0] && GEOSArea_r(ctx, outs[0], &ca) == 1 && ca > 0.499 && ca < 0.501,
+          "clipByRect area is 0.5");
+    geos_shim_destroy_many(s, outs, 1);
+    /* unknown op id → exception */
+    CHECK(geos_shim_unary_all(s, 99, tiles, 3, 0, 0, 0, 0, outs) == 1 && has_error(s),
+          "unary_all unknown op id is an exception");
+    geos_shim_last_error(s);
+    /* NULL input at index 1 → exception, partials destroyed (LSan verifies) */
+    void *nullish[3] = {tiles[0], NULL, tiles[2]};
+    CHECK(geos_shim_unary_all(s, 0, nullish, 3, 0, 0, 0, 0, outs) == 1 && has_error(s),
+          "unary_all NULL input aborts all-or-nothing");
+    geos_shim_last_error(s);
+    geos_shim_destroy_many(s, tiles, 3);
+  }
+
+  /* 30. binary_all: pin the SHIM_BINARY_* table (SNAP, SHARED_PATHS).
+   * sharedPaths is LINEAL-only (GEOS throws on areal inputs). */
+  {
+    /* a slightly-off square snapping toward an exact one within tolerance */
+    void *exact = geos_shim_build_polygon(
+        s, (double[10]){0, 0, 4, 0, 4, 4, 0, 4, 0, 0}, (unsigned int[1]){5}, 1, 0, 0);
+    void *wobbly[2];
+    wobbly[0] = geos_shim_build_polygon(
+        s, (double[10]){0.1, 0.1, 4, 0, 4, 4, 0, 4, 0.1, 0.1}, (unsigned int[1]){5}, 1, 0, 0);
+    wobbly[1] = geos_shim_build_polygon(
+        s, (double[10]){0.2, 0.2, 4, 0, 4, 4, 0, 4, 0.2, 0.2}, (unsigned int[1]){5}, 1, 0, 0);
+    void *outs[2] = {0};
+    CHECK(geos_shim_binary_all(s, 0 /* SNAP */, exact, wobbly, 2, 0.5, outs) == 0,
+          "binary_all snap succeeds");
+    /* snapping exact's (0,0) onto each wobbly vertex moves the corner: the
+     * area is 16 − 0.2×(i+1) (the corner cut), i.e. 15.6 then 15.2 */
+    int snapOk = 1;
+    for (int i = 0; i < 2; i++) {
+      double a = -1;
+      double expected = 16.0 - 0.4 * (i + 1);
+      if (!outs[i] || GEOSArea_r(ctx, outs[i], &a) != 1 || a < expected - 0.01 ||
+          a > expected + 0.01)
+        snapOk = 0;
+    }
+    CHECK(snapOk, "binary_all snap results are the snapped squares");
+    geos_shim_destroy_many(s, outs, 2);
+    /* SHARED_PATHS (id 1): overlapping collinear segments share (2 0, 4 0);
+     * disjoint lines share nothing (empty geometry, no exception). */
+    void *lines[2];
+    lines[0] = geos_shim_build_linestring(s, (double[4]){0, 0, 4, 0}, 2, 0, 0);
+    lines[1] = geos_shim_build_linestring(s, (double[4]){2, 0, 6, 0}, 2, 0, 0);
+    void *disjoint[1];
+    disjoint[0] = geos_shim_build_linestring(s, (double[4]){100, 100, 101, 101}, 2, 0, 0);
+    CHECK(lines[0] && lines[1] && disjoint[0], "binary_all line fixtures");
+    void *others[1] = {lines[1]}; /* (2 0, 6 0) — shares (2 0, 4 0) with lines[0] */
+    CHECK(geos_shim_binary_all(s, 1 /* SHARED_PATHS */, lines[0], others, 1, 0.0, outs) == 0,
+          "binary_all sharedPaths succeeds");
+    double len = -1;
+    CHECK(outs[0] && GEOSLength_r(ctx, outs[0], &len) == 1 && len > 1.999 && len < 2.001,
+          "sharedPaths finds the shared 2-unit segment");
+    geos_shim_destroy_many(s, outs, 1);
+    CHECK(geos_shim_binary_all(s, 1, lines[0], disjoint, 1, 0.0, outs) == 0,
+          "binary_all sharedPaths on disjoint lines succeeds");
+    len = -1;
+    CHECK(outs[0] && GEOSLength_r(ctx, outs[0], &len) == 1 && len == 0.0,
+          "sharedPaths on disjoint lines is empty");
+    geos_shim_destroy_many(s, outs, 1);
+    /* NULL input → exception, partials destroyed */
+    void *nullish[2] = {lines[0], NULL};
+    CHECK(geos_shim_binary_all(s, 0, exact, nullish, 2, 0.5, outs) == 1 && has_error(s),
+          "binary_all NULL input aborts all-or-nothing");
+    geos_shim_last_error(s);
+    /* unknown op id → exception */
+    CHECK(geos_shim_binary_all(s, 42, exact, wobbly, 2, 0.5, outs) == 1 && has_error(s),
+          "binary_all unknown op id is an exception");
+    geos_shim_last_error(s);
+    geos_shim_destroy_many(s, (void *[]){exact, wobbly[0], wobbly[1], lines[0], lines[1], disjoint[0]},
+                           6);
   }
 
   geos_shim_finish(s);

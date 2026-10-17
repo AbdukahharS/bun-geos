@@ -1,20 +1,28 @@
 /**
- * GeoArrow-shaped interchange (io.md §5, Phase 1 scope).
+ * GeoArrow-shaped interchange (io.md §5; Phase 5 shapes v2 — D28).
  *
- * The canonical FlatCoords/Polygonal structs ARE the GeoArrow interleaved
- * layout, so `fromArrow`/`toArrow` are validate-and-build / extract-and-shape
- * operations — structure copies, not conversions. Spec conformance
- * (extension metadata, null bitmaps, unions) is the Phase 5 pass; this layer
- * is deliberately honest about that.
+ * The tagged shapes in types.ts mirror the GeoArrow spec: `kind` names the
+ * extension type (`geoarrow.<kind>`), offsets mirror the spec's list
+ * nesting over the interleaved coordinate buffer (the spec's
+ * coord-fixed-size-list / interop profile), and `validity` is the Arrow
+ * LSB null bitmap. Member rule across kinds: the multi* kinds' MEMBERS are
+ * their leaf geometries — a single geometry reads all members as one
+ * MULTI*, and a batch treats each member as one slot. Empty MULTI* are
+ * representable (length-0 offsets, or a repeated offset for an empty
+ * member); `geometrycollection` is the dense-union emulation
+ * (`types`/`offsets` into `children`).
  *
- * Shapes:
- *   FlatCoords          → Point (n=1) / MultiPoint (n>1) / Point EMPTY (n=0)
- *   LineArray           → LineString (1 line) / MultiLineString (n lines)
- *   Polygonal           → Polygon (1 part) / MultiPolygon (n parts)
- *   Empty POINT / LINESTRING / POLYGON roundtrip; empty MULTI* are NOT
- *   representable (indistinguishable from their singular empty) → toArrow
- *   throws; same for GeometryCollection (heterogeneous). Phase 5 adds null
- *   bitmaps and full spec conformance.
+ * The Phase 1 untagged shapes (FlatCoords/LineArray/Polygonal) remain
+ * accepted everywhere as LEGACY input, inferred by shape. `toArrow` emits
+ * tagged values only, never a validity bitmap (GEOS has no null geometry).
+ * Null slots: `fromArrow` rejects them (a singular geometry cannot be
+ * null); `geometriesFromArrow` honors `nullMode` ("throw" default, "skip"
+ * omits — a cardinality change documented loudly for ingest paths).
+ *
+ * Conformance to the canonical spec bytes is differential: golden buffers
+ * generated from a reference implementation (scripts/geoarrow-goldens.py,
+ * geoarrow-pyarrow) are parsed and round-tripped in
+ * test/differential/geoarrow-goldens.test.ts.
  */
 import type { Arena } from "../arena.ts";
 import { fromCoords, fromParts, fromPolygonal } from "../construct.ts";
@@ -29,257 +37,607 @@ import {
   numGeometries,
   numInteriorRings,
 } from "../ops/accessors.ts";
-import type { ArrowArray, FlatCoords, GeomPtr, LineArray, Polygonal } from "../types.ts";
+import type {
+  ArrowArray,
+  ArrowInput,
+  FlatCoords,
+  GeomPtr,
+  GeoTypeId,
+  LineArray,
+  LineStringArray,
+  MultiLineStringArray,
+  MultiPointArray,
+  MultiPolygonArray,
+  PointArray,
+  PolygonArray,
+  Polygonal,
+} from "../types.ts";
 import { GeoType } from "../types.ts";
 
-function isPolygonal(a: ArrowArray): a is Polygonal {
-  return "ringOffsets" in a && "partOffsets" in a;
+export interface FromArrowOptions {
+  /**
+   * Batch-slot null handling (validity bitmaps): "throw" (default) rejects
+   * the first null with its slot index; "skip" OMITS null slots — the
+   * output is shorter than the slot count, so downstream masks must be
+   * compensated by the caller.
+   */
+  nullMode?: "throw" | "skip";
 }
 
-function isLineArray(a: ArrowArray): a is LineArray {
-  return "lineOffsets" in a;
-}
-
-/**
- * Phase 3 batch input normalization (api-surface Phase-2 note: "ArrowArray
- * normalization lands with the Phase 3 batch layer"): expand one
- * Arrow-shaped value into n SEPARATE geometries — the batch item array.
- * Polygons/lines go through the shim's bulk builders (one crossing per
- * array, D22); points build per-item (the cheapest builder).
- *
- * `arena` — where the built geometries register. Callers that dispose the
- * batch inputs themselves (the pool's UNPUSHED arena,
- * `withBatchInputsAsync`) MUST pass it explicitly: the default
- * (`currentArena()`) would also register them into a caller's ambient arena
- * when one is open — a double free at ambient close (audited N1).
- *
- * Empties follow the fromArrow convention: empty Polygonal → POLYGON EMPTY
- * (a one-item batch), empty FlatCoords → an empty batch.
- */
-export function geometriesFromArrow(geos: Geos, arr: ArrowArray, arena?: Arena): Geometry[] {
-  geos.assertOpen("geometriesFromArrow");
-  const op = "geometriesFromArrow";
-  const outArena = arena ?? undefined;
-  if (isPolygonal(arr)) {
-    const { coords, ringOffsets, partOffsets, hasZ, hasM } = arr;
-    if (ringOffsets.length === 0 || partOffsets.length === 0) {
-      if (coords.length > 0) {
-        throw new GeosError(op, "empty offsets but non-empty coords");
-      }
-      return [geos.empty("polygon", outArena)];
-    }
-    // Offset validation mirrors fromPolygonal (construct.ts): end-indices
-    // from 0, strictly increasing. The C builders take `const unsigned int*`
-    // — a negative JS number would wrap to ~4e9 and pass every C-side check,
-    // so the sign/monotonicity rule is enforced HERE, before any crossing
-    // (audited Risk 1).
-    let prevRing = 0;
-    for (let i = 0; i < ringOffsets.length; i++) {
-      const end = ringOffsets[i]!;
-      if (end <= prevRing) {
-        throw new GeosError(
-          op,
-          `ringOffsets must increase from 0 (ringOffsets[${i}] = ${end} <= ${prevRing})`,
-        );
-      }
-      prevRing = end;
-    }
-    let prevPart = 0;
-    for (let i = 0; i < partOffsets.length; i++) {
-      const end = partOffsets[i]!;
-      if (end <= prevPart) {
-        throw new GeosError(
-          op,
-          `partOffsets must increase from 1 (partOffsets[${i}] = ${end} <= ${prevPart})`,
-        );
-      }
-      prevPart = end;
-    }
-    if (partOffsets[partOffsets.length - 1]! !== ringOffsets.length) {
-      throw new GeosError(
-        op,
-        `partOffsets must end at the ring count (${partOffsets[partOffsets.length - 1]} != ${ringOffsets.length})`,
-      );
-    }
-    const stride = strideOf(hasZ, hasM);
-    const lastRing = ringOffsets[ringOffsets.length - 1]!;
-    if (lastRing * stride > coords.length) {
-      throw new GeosError(
-        op,
-        `coords length ${coords.length} < last ringOffset × stride (${lastRing} × ${stride})`,
-      );
-    }
-    const n = partOffsets.length;
-    const out = new BigUint64Array(n);
-    const r = geos.native.shim.geos_shim_build_polygonal_many(
-      geos.shim,
-      coords,
-      ringOffsets,
-      ringOffsets.length,
-      partOffsets,
-      n,
-      hasZ ? 1 : 0,
-      hasM ? 1 : 0,
-      out,
-    );
-    if (r !== 0) throw geos.fail("geos_shim_build_polygonal_many");
-    return geos.takeMany("geos_shim_build_polygonal_many", out, outArena);
-  }
-
-  if (isLineArray(arr)) {
-    const { coords, lineOffsets, hasZ, hasM } = arr;
-    if (lineOffsets.length === 0) {
-      throw new GeosError(op, "lineOffsets must not be empty", { jsonPath: "lineOffsets" });
-    }
-    // Same negative/monotonic rule as rings (audited Risk 1).
-    let prevLine = 0;
-    for (let i = 0; i < lineOffsets.length; i++) {
-      const end = lineOffsets[i]!;
-      if (end <= prevLine) {
-        throw new GeosError(
-          op,
-          `lineOffsets must increase from 0 (lineOffsets[${i}] = ${end} <= ${prevLine})`,
-        );
-      }
-      prevLine = end;
-    }
-    const stride = strideOf(hasZ, hasM);
-    const lastLine = lineOffsets[lineOffsets.length - 1]!;
-    if (lastLine * stride > coords.length) {
-      throw new GeosError(
-        op,
-        `coords length ${coords.length} < last lineOffset × stride (${lastLine} × ${stride})`,
-      );
-    }
-    const n = lineOffsets.length;
-    const out = new BigUint64Array(n);
-    const r = geos.native.shim.geos_shim_build_linestrings_many(
-      geos.shim,
-      coords,
-      lineOffsets,
-      n,
-      hasZ ? 1 : 0,
-      hasM ? 1 : 0,
-      out,
-    );
-    if (r !== 0) throw geos.fail("geos_shim_build_linestrings_many");
-    return geos.takeMany("geos_shim_build_linestrings_many", out, outArena);
-  }
-
-  // FlatCoords → one POINT per coordinate (n=0 → empty batch).
-  const { coords, n, hasZ, hasM } = arr;
-  const stride = strideOf(hasZ, hasM);
-  if (coords.length !== n * stride) {
-    throw new GeosError(op, `coords length ${coords.length} != n × stride (${n} × ${stride})`);
-  }
-  const points: Geometry[] = new Array(n);
-  for (let i = 0; i < n; i++) {
-    points[i] = fromCoords(
-      geos,
-      { coords: coords.subarray(i * stride, (i + 1) * stride), n: 1, hasZ, hasM },
-      "point",
-      outArena,
-    );
-  }
-  return points;
+function hasKind(arr: ArrowInput): arr is ArrowArray {
+  return "kind" in arr;
 }
 
 function strideOf(hasZ: boolean, hasM: boolean): number {
   return 2 + (hasZ ? 1 : 0) + (hasM ? 1 : 0);
 }
 
-/**
- * Audit H3: parts with mixed dimensions (an XYZ point next to an XY point)
- * share one buffer in the Arrow shapes — silently striding them with the
- * first part's stride corrupts every following coordinate. GEOS tolerates
- * such collections; the Arrow shapes do not. Throw instead.
- */
-function checkHomogeneous(parts: readonly { hasZ: boolean; hasM: boolean }[]): number {
-  const first = parts[0]!;
-  const stride = strideOf(first.hasZ, first.hasM);
-  for (let i = 1; i < parts.length; i++) {
-    if (strideOf(parts[i]!.hasZ, parts[i]!.hasM) !== stride) {
-      throw new GeosError(
-        "toArrow",
-        `mixed coordinate dimensions in a collection (part 0 has stride ${stride}, part ${i} has stride ${strideOf(parts[i]!.hasZ, parts[i]!.hasM)}) — normalize dimensions first`,
-      );
-    }
+/** Popcount of NULLED slots in an Arrow LSB validity bitmap. */
+export function validityNullCount(validity: Uint8Array | undefined, n: number): number {
+  if (validity === undefined) return 0;
+  let nulls = 0;
+  for (let i = 0; i < n; i++) {
+    if ((validity[i >> 3]! & (1 << (i & 7))) === 0) nulls++;
   }
-  return stride;
+  return nulls;
 }
 
-/** Build a geometry from a GeoArrow-shaped value (validate; one crossing per part). */
-export function fromArrow(geos: Geos, arr: ArrowArray): Geometry {
-  geos.assertOpen("fromArrow");
-  const op = "fromArrow";
-  if (isPolygonal(arr)) {
-    // Empty convention (mirrors FlatCoords n=0 → POINT EMPTY).
-    if (arr.ringOffsets.length === 0 || arr.partOffsets.length === 0) {
-      if (arr.coords.length > 0) {
-        throw new GeosError(op, "empty offsets but non-empty coords");
-      }
-      return geos.empty("polygon");
-    }
-    return fromPolygonal(geos, arr);
-  }
+function isValidSlot(validity: Uint8Array | undefined, i: number): boolean {
+  return validity === undefined || (validity[i >> 3]! & (1 << (i & 7))) !== 0;
+}
 
-  if (isLineArray(arr)) {
-    const { coords, lineOffsets, hasZ, hasM } = arr;
-    const stride = strideOf(hasZ, hasM);
-    if (lineOffsets.length === 0) {
-      throw new GeosError(op, "lineOffsets must not be empty", { jsonPath: "lineOffsets" });
+function checkValidityLength(
+  op: string,
+  field: string,
+  validity: Uint8Array | undefined,
+  n: number,
+): void {
+  if (validity === undefined) return;
+  if (validity.length < (n + 7) >> 3) {
+    throw new GeosError(
+      op,
+      `validity bitmap too short for ${n} slots (${field}: ${validity.length} bytes, need ${(n + 7) >> 3})`,
+    );
+  }
+}
+
+/** STRICTLY-increasing offset validation (rings/parts/lines: an empty slot
+ * is a data error for these). */
+function checkOffsets(
+  op: string,
+  field: string,
+  offsets: Int32Array,
+  limit: number,
+  scale: number,
+): void {
+  let prev = 0;
+  for (let i = 0; i < offsets.length; i++) {
+    const end = offsets[i]!;
+    if (end <= prev) {
+      throw new GeosError(op, `${field} must increase from 0 (${field}[${i}] = ${end} <= ${prev})`);
     }
-    if (lineOffsets[lineOffsets.length - 1]! * stride > coords.length) {
+    prev = end;
+  }
+  if (prev * scale > limit) {
+    throw new GeosError(op, `coords length ${limit} < last ${field} × stride (${prev} × ${scale})`);
+  }
+}
+
+/** NON-decreasing offset validation (point slots: a repeated offset is a
+ * legitimate POINT EMPTY member — Arrow list offsets are non-decreasing). */
+function checkPointOffsets(op: string, offsets: Int32Array, limit: number, scale: number): void {
+  let prev = 0;
+  for (let i = 0; i < offsets.length; i++) {
+    const end = offsets[i]!;
+    if (end < prev) {
       throw new GeosError(
         op,
-        `coords length ${coords.length} < last lineOffset × stride (${lineOffsets[lineOffsets.length - 1]} × ${stride})`,
+        `pointOffsets must be non-decreasing (pointOffsets[${i}] = ${end} < ${prev})`,
       );
     }
-    const lines: Geometry[] = [];
-    let start = 0;
-    for (let l = 0; l < lineOffsets.length; l++) {
-      const end: number = lineOffsets[l]!;
-      const n = end - start;
-      if (n < 2) {
-        throw new GeosError(op, `line ${l} has ${n} positions; need ≥ 2`, {
-          jsonPath: `lineOffsets[${l}]`,
-        });
+    prev = end;
+  }
+  if (prev * scale > limit) {
+    throw new GeosError(
+      op,
+      `coords length ${limit} < last pointOffsets × stride (${prev} × ${scale})`,
+    );
+  }
+}
+
+/* ── legacy inference (Phase 1–3 shapes) ────────────────────────────────── */
+
+function inferLegacy(arr: Exclude<ArrowInput, ArrowArray>): ArrowArray {
+  if ("lineOffsets" in arr) {
+    const lines: LineStringArray | MultiLineStringArray =
+      arr.lineOffsets.length === 1
+        ? {
+            kind: "linestring",
+            coords: arr.coords,
+            lineOffsets: arr.lineOffsets,
+            hasZ: arr.hasZ,
+            hasM: arr.hasM,
+          }
+        : {
+            kind: "multilinestring",
+            coords: arr.coords,
+            lineOffsets: arr.lineOffsets,
+            hasZ: arr.hasZ,
+            hasM: arr.hasM,
+          };
+    return lines;
+  }
+  if ("ringOffsets" in arr) {
+    const polys: PolygonArray | MultiPolygonArray =
+      arr.partOffsets.length === 1
+        ? {
+            kind: "polygon",
+            coords: arr.coords,
+            ringOffsets: arr.ringOffsets,
+            hasZ: arr.hasZ,
+            hasM: arr.hasM,
+          }
+        : {
+            kind: "multipolygon",
+            coords: arr.coords,
+            ringOffsets: arr.ringOffsets,
+            partOffsets: arr.partOffsets,
+            hasZ: arr.hasZ,
+            hasM: arr.hasM,
+          };
+    return polys;
+  }
+  // FlatCoords: n=1 → point, n=0 → POINT EMPTY (point), n>1 → multipoint
+  const points: PointArray | MultiPointArray =
+    arr.n === 1
+      ? { kind: "point", coords: arr.coords, hasZ: arr.hasZ, hasM: arr.hasM }
+      : {
+          kind: "multipoint",
+          coords: arr.coords,
+          pointOffsets: Int32Array.from({ length: arr.n }, (_, i) => i + 1),
+          hasZ: arr.hasZ,
+          hasM: arr.hasM,
+        };
+  return points;
+}
+
+/** Build one line from coords[start..end) — the common per-member primitive. */
+function lineFromRange(
+  geos: Geos,
+  coords: Float64Array,
+  start: number,
+  end: number,
+  hasZ: boolean,
+  hasM: boolean,
+  op: string,
+  index: number,
+  arena?: Arena,
+): Geometry {
+  const stride = strideOf(hasZ, hasM);
+  const n = end - start;
+  if (n < 2) {
+    throw new GeosError(op, `line ${index} has ${n} positions; need ≥ 2`, {
+      jsonPath: `lineOffsets[${index}]`,
+    });
+  }
+  return fromCoords(
+    geos,
+    { coords: coords.subarray(start * stride, end * stride), n, hasZ, hasM },
+    "linestring",
+    arena,
+  );
+}
+
+/* ── singular path ──────────────────────────────────────────────────────── */
+
+/** Build a geometry from a GeoArrow-shaped value (validate; one crossing per part). */
+export function fromArrow(geos: Geos, input: ArrowInput): Geometry {
+  geos.assertOpen("fromArrow");
+  const arr = hasKind(input) ? input : inferLegacy(input);
+  const op = "fromArrow";
+  switch (arr.kind) {
+    case "point": {
+      if (arr.coords.length === 0) return geos.empty("point");
+      const stride = strideOf(arr.hasZ, arr.hasM);
+      if (arr.coords.length !== stride) {
+        throw new GeosError(op, `point coords length ${arr.coords.length} != stride ${stride}`);
       }
-      lines.push(
+      return fromCoords(
+        geos,
+        { coords: arr.coords, n: 1, hasZ: arr.hasZ, hasM: arr.hasM },
+        "point",
+      );
+    }
+    case "linestring": {
+      if (arr.lineOffsets.length !== 1) {
+        throw new GeosError(op, "linestring lineOffsets must have length 1");
+      }
+      return lineFromRange(geos, arr.coords, 0, arr.lineOffsets[0]!, arr.hasZ, arr.hasM, op, 0);
+    }
+    case "polygon": {
+      if (arr.coords.length === 0) return geos.empty("polygon");
+      return fromPolygonal(geos, {
+        coords: arr.coords,
+        ringOffsets: arr.ringOffsets,
+        partOffsets: Int32Array.of(arr.ringOffsets.length),
+        hasZ: arr.hasZ,
+        hasM: arr.hasM,
+      });
+    }
+    case "multipoint": {
+      if (validityNullCount(arr.validity, arr.pointOffsets.length) > 0) {
+        throw new GeosError(op, "null slot in a singular Arrow value (use the batch entry point)");
+      }
+      if (arr.pointOffsets.length === 0) return geos.empty("multipoint");
+      const members = pointMembers(geos, arr.coords, arr.pointOffsets, arr.hasZ, arr.hasM, op);
+      const built = members.filter((m): m is Geometry => m !== null);
+      if (built.length === 1 && arr.pointOffsets.length === 1) return built[0]!;
+      return fromParts(geos, "multipoint", built, { transfer: true });
+    }
+    case "multilinestring": {
+      if (validityNullCount(arr.validity, arr.lineOffsets.length) > 0) {
+        throw new GeosError(op, "null slot in a singular Arrow value (use the batch entry point)");
+      }
+      if (arr.lineOffsets.length === 0) return geos.empty("multilinestring");
+      checkOffsets(
+        op,
+        "lineOffsets",
+        arr.lineOffsets,
+        arr.coords.length,
+        strideOf(arr.hasZ, arr.hasM),
+      );
+      const members: Geometry[] = [];
+      let start = 0;
+      for (let l = 0; l < arr.lineOffsets.length; l++) {
+        members.push(
+          lineFromRange(geos, arr.coords, start, arr.lineOffsets[l]!, arr.hasZ, arr.hasM, op, l),
+        );
+        start = arr.lineOffsets[l]!;
+      }
+      if (members.length === 1) return members[0]!;
+      return fromParts(geos, "multilinestring", members, { transfer: true });
+    }
+    case "multipolygon": {
+      if (validityNullCount(arr.validity, arr.partOffsets.length) > 0) {
+        throw new GeosError(op, "null slot in a singular Arrow value (use the batch entry point)");
+      }
+      if (arr.partOffsets.length === 0) return geos.empty("multipolygon");
+      return fromPolygonal(geos, {
+        coords: arr.coords,
+        ringOffsets: arr.ringOffsets,
+        partOffsets: arr.partOffsets,
+        hasZ: arr.hasZ,
+        hasM: arr.hasM,
+      });
+    }
+    case "geometrycollection": {
+      if (validityNullCount(arr.validity, arr.types.length) > 0) {
+        throw new GeosError(op, "null slot in a singular Arrow value (use the batch entry point)");
+      }
+      const members = gcFromArrow(geos, arr, undefined, "throw");
+      if (members.length === 0) return geos.empty("geometrycollection");
+      return fromParts(geos, "geometrycollection", members, { transfer: true });
+    }
+  }
+}
+
+/* ── batch path (members = slots) ───────────────────────────────────────── */
+
+/**
+ * Expand one Arrow-shaped value into its member geometries — the batch
+ * item array (api-surface Phase 3 note). Tagged kinds contribute their
+ * members; legacy shapes keep the Phase 3 inference. Null slots follow
+ * `opts.nullMode`.
+ *
+ * `arena` — where the built geometries register. Callers that dispose the
+ * batch inputs themselves (the pool's UNPUSHED arena, `withBatchInputsAsync`)
+ * MUST pass it explicitly (audited N1).
+ */
+export function geometriesFromArrow(
+  geos: Geos,
+  input: ArrowInput,
+  arena?: Arena,
+  opts: FromArrowOptions = {},
+): Geometry[] {
+  geos.assertOpen("geometriesFromArrow");
+  const arr = hasKind(input) ? input : inferLegacy(input);
+  const op = "geometriesFromArrow";
+  const outArena = arena ?? undefined;
+  const nullMode = opts.nullMode ?? "throw";
+  switch (arr.kind) {
+    case "point":
+      return [
         fromCoords(
           geos,
-          { coords: coords.subarray(start * stride, end * stride), n, hasZ, hasM },
-          "linestring",
+          { coords: arr.coords, n: 1, hasZ: arr.hasZ, hasM: arr.hasM },
+          "point",
+          outArena,
         ),
-      );
-      start = end;
+      ];
+    case "linestring": {
+      if (arr.lineOffsets.length !== 1) {
+        throw new GeosError(op, "linestring lineOffsets must have length 1");
+      }
+      return [
+        lineFromRange(
+          geos,
+          arr.coords,
+          0,
+          arr.lineOffsets[0]!,
+          arr.hasZ,
+          arr.hasM,
+          op,
+          0,
+          outArena,
+        ),
+      ];
     }
-    if (lines.length === 1) return lines[0]!;
-    return fromParts(geos, "multilinestring", lines, { transfer: true });
+    case "polygon": {
+      if (arr.coords.length === 0) return [geos.empty("polygon", outArena)];
+      return polygonMembers(
+        geos,
+        arr.coords,
+        arr.ringOffsets,
+        Int32Array.of(arr.ringOffsets.length),
+        arr.hasZ,
+        arr.hasM,
+        outArena,
+        op,
+      );
+    }
+    case "multipoint": {
+      checkValidityLength(op, "pointOffsets", arr.validity, arr.pointOffsets.length);
+      if (nullMode === "throw" && validityNullCount(arr.validity, arr.pointOffsets.length) > 0) {
+        for (let i = 0; ; i++) {
+          if (!isValidSlot(arr.validity, i)) {
+            throw new GeosError(op, `null geometry slot ${i} (nullMode "throw")`);
+          }
+        }
+      }
+      if (arr.pointOffsets.length === 0) return [];
+      // validity passes into the builder: null slots are never constructed
+      // (their coord slots may hold padding, even NaN)
+      const members = pointMembers(
+        geos,
+        arr.coords,
+        arr.pointOffsets,
+        arr.hasZ,
+        arr.hasM,
+        op,
+        arr.validity,
+      );
+      if (arr.validity === undefined) return members as Geometry[]; // no validity → no null slots
+      const out: Geometry[] = [];
+      for (const m of members) {
+        if (m !== null) out.push(m);
+      }
+      return out;
+    }
+    case "multilinestring": {
+      checkValidityLength(op, "lineOffsets", arr.validity, arr.lineOffsets.length);
+      const members = lineMembers(
+        geos,
+        arr.coords,
+        arr.lineOffsets,
+        arr.hasZ,
+        arr.hasM,
+        op,
+        outArena,
+      );
+      if (arr.validity === undefined) return members;
+      const out: Geometry[] = [];
+      for (let i = 0; i < members.length; i++) {
+        if (isValidSlot(arr.validity, i)) out.push(members[i]!);
+        else members[i]!.dispose();
+      }
+      return out;
+    }
+    case "multipolygon": {
+      checkValidityLength(op, "partOffsets", arr.validity, arr.partOffsets.length);
+      if (nullMode === "throw" && validityNullCount(arr.validity, arr.partOffsets.length) > 0) {
+        for (let i = 0; ; i++) {
+          if (!isValidSlot(arr.validity, i)) {
+            throw new GeosError(op, `null geometry slot ${i} (nullMode "throw")`);
+          }
+        }
+      }
+      const members = polygonMembers(
+        geos,
+        arr.coords,
+        arr.ringOffsets,
+        arr.partOffsets,
+        arr.hasZ,
+        arr.hasM,
+        outArena,
+        op,
+      );
+      if (arr.validity === undefined) return members;
+      const out: Geometry[] = [];
+      for (let i = 0; i < members.length; i++) {
+        if (isValidSlot(arr.validity, i)) out.push(members[i]!);
+        else members[i]!.dispose();
+      }
+      return out;
+    }
+    case "geometrycollection":
+      return gcFromArrow(geos, arr, outArena, nullMode);
   }
+}
 
-  // FlatCoords → Point (n=1), MultiPoint (n>1), or POINT EMPTY (n=0).
-  const { coords, n, hasZ, hasM } = arr;
-  const stride = strideOf(hasZ, hasM);
-  if (coords.length !== n * stride) {
-    throw new GeosError(op, `coords length ${coords.length} != n × stride (${n} × ${stride})`);
-  }
-  if (n === 0) return geos.empty("point");
-  if (n === 1) return fromCoords(geos, arr, "point");
-  const points: Geometry[] = [];
+/* ── GC (dense union) ───────────────────────────────────────────────────── */
+
+/** Batch-shaped GC expansion (picked members; unreferenced members disposed). */
+function gcFromArrow(
+  geos: Geos,
+  arr: Extract<ArrowArray, { kind: "geometrycollection" }>,
+  outArena: Arena | undefined,
+  nullMode: "throw" | "skip",
+): Geometry[] {
+  const op = "geometrycollection";
+  const n = arr.types.length;
+  checkValidityLength(op, "types", arr.validity, n);
+  if (n === 0) return [];
+  // Build each child's members ONCE, then pick slots in order.
+  const built = arr.children.map((child) => {
+    if (!hasKind(child)) throw new GeosError(op, "geometrycollection children must be tagged");
+    if (child.kind === "geometrycollection") {
+      throw new GeosError(op, "nested geometrycollection children are not representable");
+    }
+    return geometriesFromArrow(geos, child, outArena, { nullMode: "throw" });
+  });
+  const picked = new Set<string>();
+  const out: Geometry[] = [];
   for (let i = 0; i < n; i++) {
-    points.push(
+    if (!isValidSlot(arr.validity, i)) {
+      if (nullMode === "skip") continue;
+      // all-or-nothing: dispose everything built before rethrowing
+      for (const childMembers of built) {
+        for (const m of childMembers) m.dispose();
+      }
+      throw new GeosError(op, `null geometry slot ${i} (nullMode "throw")`);
+    }
+    const childIdx = arr.types[i]!;
+    const member = built[childIdx]?.[arr.offsets[i]!];
+    if (member === undefined) {
+      // all-or-nothing: dispose everything built before rethrowing
+      for (const childMembers of built) {
+        for (const m of childMembers) m.dispose();
+      }
+      throw new GeosError(
+        op,
+        `slot ${i} references child ${childIdx}[${arr.offsets[i]}] out of range (${built[childIdx]?.length ?? "no child"})`,
+      );
+    }
+    picked.add(`${childIdx}:${arr.offsets[i]!}`);
+    out.push(member);
+  }
+  // Members no slot references are disposed (ownership stays exact).
+  for (let c = 0; c < built.length; c++) {
+    for (let j = 0; j < built[c]!.length; j++) {
+      if (!picked.has(`${c}:${j}`)) built[c]![j]!.dispose();
+    }
+  }
+  return out;
+}
+
+/* ── member builders ────────────────────────────────────────────────────── */
+
+function pointMembers(
+  geos: Geos,
+  coords: Float64Array,
+  pointOffsets: Int32Array,
+  hasZ: boolean,
+  hasM: boolean,
+  op: string,
+  validity?: Uint8Array,
+): (Geometry | null)[] {
+  const stride = strideOf(hasZ, hasM);
+  checkPointOffsets(op, pointOffsets, coords.length, stride);
+  const out: (Geometry | null)[] = [];
+  let start = 0;
+  for (let i = 0; i < pointOffsets.length; i++) {
+    const end = pointOffsets[i]!;
+    if (!isValidSlot(validity, i)) {
+      out.push(null); // null slot: never built (its coords may be padding)
+      start = end;
+      continue;
+    }
+    if (end === start) {
+      out.push(geos.empty("point")); // repeated offset = POINT EMPTY member
+      continue;
+    }
+    out.push(
       fromCoords(
         geos,
-        { coords: coords.subarray(i * stride, (i + 1) * stride), n: 1, hasZ, hasM },
+        { coords: coords.subarray(start * stride, end * stride), n: 1, hasZ, hasM },
         "point",
       ),
     );
+    start = end;
   }
-  return fromParts(geos, "multipoint", points, { transfer: true });
+  return out;
 }
 
-/** Extract a GeoArrow-shaped value from a geometry. */
+function lineMembers(
+  geos: Geos,
+  coords: Float64Array,
+  lineOffsets: Int32Array,
+  hasZ: boolean,
+  hasM: boolean,
+  op: string,
+  outArena?: Arena,
+): Geometry[] {
+  const n = lineOffsets.length;
+  if (n === 0) return [];
+  const stride = strideOf(hasZ, hasM);
+  checkOffsets(op, "lineOffsets", lineOffsets, coords.length, stride);
+  // ONE crossing via the shim's bulk builder (offsets are absolute, so a
+  // preceding null slot's zero-width range simply contributes nothing).
+  const out = new BigUint64Array(n);
+  const r = geos.native.shim.geos_shim_build_linestrings_many(
+    geos.shim,
+    coords,
+    lineOffsets,
+    n,
+    hasZ ? 1 : 0,
+    hasM ? 1 : 0,
+    out,
+  );
+  if (r !== 0) throw geos.fail("geos_shim_build_linestrings_many");
+  return geos.takeMany("geos_shim_build_linestrings_many", out, outArena);
+}
+
+function polygonMembers(
+  geos: Geos,
+  coords: Float64Array,
+  ringOffsets: Int32Array,
+  partOffsets: Int32Array,
+  hasZ: boolean,
+  hasM: boolean,
+  outArena: Arena | undefined,
+  op: string,
+): Geometry[] {
+  if (ringOffsets.length === 0 || partOffsets.length === 0) {
+    if (coords.length > 0) throw new GeosError(op, "empty offsets but non-empty coords");
+    return outArena === undefined ? [geos.empty("polygon")] : [];
+  }
+  checkOffsets(op, "ringOffsets", ringOffsets, coords.length, strideOf(hasZ, hasM));
+  let prevPart = 0;
+  for (let i = 0; i < partOffsets.length; i++) {
+    const end = partOffsets[i]!;
+    if (end <= prevPart) {
+      throw new GeosError(
+        op,
+        `partOffsets must increase from 0 (partOffsets[${i}] = ${end} <= ${prevPart})`,
+      );
+    }
+    prevPart = end;
+  }
+  if (partOffsets[partOffsets.length - 1]! !== ringOffsets.length) {
+    throw new GeosError(
+      op,
+      `partOffsets must end at the ring count (${partOffsets[partOffsets.length - 1]} != ${ringOffsets.length})`,
+    );
+  }
+  const out = new BigUint64Array(partOffsets.length);
+  const r = geos.native.shim.geos_shim_build_polygonal_many(
+    geos.shim,
+    coords,
+    ringOffsets,
+    ringOffsets.length,
+    partOffsets,
+    partOffsets.length,
+    hasZ ? 1 : 0,
+    hasM ? 1 : 0,
+    out,
+  );
+  if (r !== 0) throw geos.fail("geos_shim_build_polygonal_many");
+  return geos.takeMany("geos_shim_build_polygonal_many", out, outArena);
+}
+
+/* ── extraction (tagged output) ─────────────────────────────────────────── */
+
+/** Extract a GeoArrow-shaped value from a geometry (tagged, D28). */
 export function toArrow(geos: Geos, g: Geometry): ArrowArray {
   g.requireSame(geos);
   geos.assertOpen("toArrow");
@@ -287,48 +645,58 @@ export function toArrow(geos: Geos, g: Geometry): ArrowArray {
   switch (typeId) {
     case GeoType.Point: {
       if (isEmpty(geos, g)) {
-        return { coords: new Float64Array(0), n: 0, hasZ: false, hasM: false };
+        return { kind: "point", coords: new Float64Array(0), hasZ: false, hasM: false };
       }
-      return coordinates(geos, g);
-    }
-    case GeoType.MultiPoint: {
-      const n = numGeometries(geos, g);
-      // MULTIPOINT EMPTY is indistinguishable from POINT EMPTY in the flat
-      // shape — reject rather than silently return a different geometry.
-      if (n === 0) {
-        throw new GeosError(
-          "toArrow",
-          "MULTIPOINT EMPTY is not representable in the Phase 1 Arrow shapes (indistinguishable from POINT EMPTY) — Phase 5 adds null bitmaps",
-        );
-      }
-      const flats: FlatCoords[] = [];
-      for (let i = 0; i < n; i++) flats.push(coordinates(geos, child(geos, g, i)));
-      return concatFlats(flats);
+      const c = coordinates(geos, g);
+      return { kind: "point", coords: c.coords, hasZ: c.hasZ, hasM: c.hasM };
     }
     case GeoType.LineString: {
       const { coords, n, hasZ, hasM } = coordinates(geos, g);
-      return { coords, lineOffsets: Int32Array.of(n), hasZ, hasM };
-    }
-    case GeoType.MultiLineString: {
-      const n = numGeometries(geos, g);
-      // Representable as an empty LineArray — but fromArrow's empty-offsets
-      // rule makes the roundtrip asymmetric, so reject it like MultiPoint.
-      if (n === 0) {
-        throw new GeosError(
-          "toArrow",
-          "MULTILINESTRING EMPTY is not representable in the Phase 1 Arrow shapes — Phase 5 adds null bitmaps",
-        );
-      }
-      const parts: LineArray[] = [];
-      for (let i = 0; i < n; i++) {
-        const { coords, n: cN, hasZ, hasM } = coordinates(geos, child(geos, g, i));
-        parts.push({ coords, lineOffsets: Int32Array.of(cN), hasZ, hasM });
-      }
-      return concatLines(parts);
+      return { kind: "linestring", coords, lineOffsets: Int32Array.of(n), hasZ, hasM };
     }
     case GeoType.Polygon: {
       if (isEmpty(geos, g)) {
         return {
+          kind: "polygon",
+          coords: new Float64Array(0),
+          ringOffsets: Int32Array.of(),
+          hasZ: false,
+          hasM: false,
+        };
+      }
+      return polygonalToPolygonArray(geos, g);
+    }
+    case GeoType.MultiPoint: {
+      const n = numGeometries(geos, g);
+      if (n === 0) {
+        return {
+          kind: "multipoint",
+          coords: new Float64Array(0),
+          pointOffsets: Int32Array.of(),
+          hasZ: false,
+          hasM: false,
+        };
+      }
+      return multiPointToArrow(geos, g, n);
+    }
+    case GeoType.MultiLineString: {
+      const n = numGeometries(geos, g);
+      if (n === 0) {
+        return {
+          kind: "multilinestring",
+          coords: new Float64Array(0),
+          lineOffsets: Int32Array.of(),
+          hasZ: false,
+          hasM: false,
+        };
+      }
+      return multiLineToArrow(geos, g, n);
+    }
+    case GeoType.MultiPolygon: {
+      const n = numGeometries(geos, g);
+      if (n === 0) {
+        return {
+          kind: "multipolygon",
           coords: new Float64Array(0),
           ringOffsets: Int32Array.of(),
           partOffsets: Int32Array.of(),
@@ -336,27 +704,10 @@ export function toArrow(geos: Geos, g: Geometry): ArrowArray {
           hasM: false,
         };
       }
-      return polygonalOf(geos, g);
-    }
-    case GeoType.MultiPolygon: {
-      const n = numGeometries(geos, g);
-      // Same representability rule as the other empty Multi*: the shape
-      // cannot distinguish MULTIPOLYGON EMPTY from POLYGON EMPTY.
-      if (n === 0) {
-        throw new GeosError(
-          "toArrow",
-          "MULTIPOLYGON EMPTY is not representable in the Phase 1 Arrow shapes (indistinguishable from POLYGON EMPTY) — Phase 5 adds null bitmaps",
-        );
-      }
-      const parts: Polygonal[] = [];
-      for (let i = 0; i < n; i++) parts.push(polygonalOf(geos, child(geos, g, i)));
-      return concatPolygons(parts);
+      return multiPolygonToArrow(geos, g, n);
     }
     default:
-      throw new GeosError(
-        "toArrow",
-        "GeometryCollection is not representable in the Phase 1 Arrow shapes — extract parts individually (Phase 5 adds full conformance)",
-      );
+      return geometryCollectionToArrow(geos, g);
   }
 }
 
@@ -367,40 +718,231 @@ function child(geos: Geos, parent: Geometry, i: number): Geometry {
   );
 }
 
-function concatFlats(parts: FlatCoords[]): FlatCoords {
-  const stride = checkHomogeneous(parts);
-  const hasZ = parts[0]!.hasZ;
-  const hasM = parts[0]!.hasM;
-  let total = 0;
-  for (const p of parts) total += p.n;
-  const coords = new Float64Array(total * stride);
-  let off = 0;
-  for (const p of parts) {
-    coords.set(p.coords, off);
-    off += p.coords.length;
-  }
-  return { coords, n: total, hasZ, hasM };
+function polygonalToPolygonArray(geos: Geos, poly: Geometry): PolygonArray {
+  const p = polygonalOf(geos, poly);
+  return {
+    kind: "polygon",
+    coords: p.coords,
+    ringOffsets: p.ringOffsets,
+    hasZ: p.hasZ,
+    hasM: p.hasM,
+  };
 }
 
-function concatLines(parts: LineArray[]): LineArray {
-  const stride = checkHomogeneous(parts);
-  const hasZ = parts[0]!.hasZ;
-  const hasM = parts[0]!.hasM;
-  let totalCoords = 0;
-  for (const p of parts) totalCoords += p.lineOffsets[p.lineOffsets.length - 1]!;
-  const coords = new Float64Array(totalCoords * stride);
-  const lineOffsets = new Int32Array(parts.length);
-  let off = 0;
+function multiPointToArrow(geos: Geos, mp: Geometry, n: number): MultiPointArray {
+  const members = Array.from({ length: n }, (_, i) => child(geos, mp, i));
+  const dims = checkHomogeneous(geos, members);
+  const chunks: Float64Array[] = [];
+  const pointOffsets = new Int32Array(n);
   let count = 0;
-  for (let i = 0; i < parts.length; i++) {
-    const p = parts[i]!;
-    coords.set(p.coords, off);
-    off += p.coords.length;
-    count += p.lineOffsets[p.lineOffsets.length - 1]!;
-    lineOffsets[i] = count;
+  for (let i = 0; i < n; i++) {
+    if (!isEmpty(geos, members[i]!)) {
+      chunks.push(coordinates(geos, members[i]!).coords);
+      count++;
+    }
+    pointOffsets[i] = count; // empty member → repeated offset
   }
-  return { coords, lineOffsets, hasZ, hasM };
+  return {
+    kind: "multipoint",
+    coords: concatCoords(chunks),
+    pointOffsets,
+    hasZ: dims.hasZ,
+    hasM: dims.hasM,
+  };
 }
+
+function multiLineToArrow(geos: Geos, ml: Geometry, n: number): MultiLineStringArray {
+  const members = Array.from({ length: n }, (_, i) => child(geos, ml, i));
+  const dims = checkHomogeneous(geos, members);
+  const chunks: Float64Array[] = [];
+  const lineOffsets = new Int32Array(n);
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const c = coordinates(geos, members[i]!);
+    chunks.push(c.coords);
+    total += c.n;
+    lineOffsets[i] = total;
+  }
+  return {
+    kind: "multilinestring",
+    coords: concatCoords(chunks),
+    lineOffsets,
+    hasZ: dims.hasZ,
+    hasM: dims.hasM,
+  };
+}
+
+function multiPolygonToArrow(geos: Geos, mp: Geometry, n: number): MultiPolygonArray {
+  const members = Array.from({ length: n }, (_, i) => child(geos, mp, i));
+  checkHomogeneous(geos, members);
+  const parts: Polygonal[] = [];
+  for (let i = 0; i < n; i++) {
+    if (!isEmpty(geos, members[i]!)) parts.push(polygonalOf(geos, members[i]!));
+  }
+  return { kind: "multipolygon", ...concatPolygonal(parts) };
+}
+
+function geometryCollectionToArrow(geos: Geos, gc: Geometry): ArrowArray {
+  const n = numGeometries(geos, gc);
+  if (n === 0) {
+    return {
+      kind: "geometrycollection",
+      types: Int32Array.of(),
+      offsets: Int32Array.of(),
+      children: [],
+    };
+  }
+  // group members by type, first-appearance child order
+  const order: GeoTypeId[] = [];
+  const groups = new Map<GeoTypeId, number[]>();
+  for (let i = 0; i < n; i++) {
+    const t = geomTypeId(geos, child(geos, gc, i));
+    let idxs = groups.get(t);
+    if (idxs === undefined) {
+      idxs = [];
+      groups.set(t, idxs);
+      order.push(t);
+    }
+    idxs.push(i);
+  }
+  const children: ArrowArray[] = [];
+  const childSlotPos = new Map<number, { c: number; pos: number }>(); // slot → (child, position)
+  for (let c = 0; c < order.length; c++) {
+    const memberSlots = groups.get(order[c]!)!;
+    const members = memberSlots.map((s) => child(geos, gc, s));
+    switch (order[c]) {
+      case GeoType.Point:
+      case GeoType.MultiPoint:
+        children[c] = membersToPointArray(geos, members, memberSlots, childSlotPos);
+        break;
+      case GeoType.LineString:
+      case GeoType.MultiLineString:
+        children[c] = membersToLineStringArray(geos, members, memberSlots, childSlotPos);
+        break;
+      case GeoType.Polygon:
+      case GeoType.MultiPolygon:
+        children[c] = membersToPolygonArray(geos, members, memberSlots, childSlotPos);
+        break;
+      default:
+        throw new GeosError("toArrow", `unhandled member type ${order[c]} in a collection`);
+    }
+  }
+  const types = new Int32Array(n);
+  const offsets = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    const ref = childSlotPos.get(i);
+    if (ref === undefined) {
+      throw new GeosError("toArrow", `collection member ${i} not placed in a child array`);
+    }
+    types[i] = ref.c;
+    offsets[i] = ref.pos;
+  }
+  return { kind: "geometrycollection", types, offsets, children };
+}
+
+/* member-array builders for GC children (borrowed views — read-only) */
+
+/** Audit H3: members with mixed coordinate dimensions share one buffer in
+ * the Arrow shapes — silently striding them with the first member's stride
+ * corrupts every following coordinate. Throw instead. */
+function checkHomogeneous(geos: Geos, members: Geometry[]): { hasZ: boolean; hasM: boolean } {
+  const first = dimensionsOf(geos, members[0]!);
+  const stride = strideOf(first.hasZ, first.hasM);
+  for (let i = 1; i < members.length; i++) {
+    const d = dimensionsOf(geos, members[i]!);
+    if (strideOf(d.hasZ, d.hasM) !== stride) {
+      throw new GeosError(
+        "toArrow",
+        `mixed coordinate dimensions in a collection (member 0 has stride ${stride}, member ${i} has stride ${strideOf(d.hasZ, d.hasM)}) — normalize dimensions first`,
+      );
+    }
+  }
+  return first;
+}
+
+function membersToPointArray(
+  geos: Geos,
+  members: Geometry[],
+  memberSlots: number[],
+  childSlotPos: Map<number, { c: number; pos: number }>,
+): MultiPointArray {
+  const dims = checkHomogeneous(geos, members);
+  const c = childCount(childSlotPos); // hoisted — the index is per-child, not per-member
+  const chunks: Float64Array[] = [];
+  const pointOffsets = new Int32Array(members.length);
+  let count = 0;
+  for (let i = 0; i < members.length; i++) {
+    childSlotPos.set(memberSlots[i]!, { c, pos: i });
+    if (!isEmpty(geos, members[i]!)) {
+      chunks.push(coordinates(geos, members[i]!).coords);
+      count++;
+    }
+    pointOffsets[i] = count;
+  }
+  return {
+    kind: "multipoint",
+    coords: concatCoords(chunks),
+    pointOffsets,
+    hasZ: dims.hasZ,
+    hasM: dims.hasM,
+  };
+}
+
+function membersToLineStringArray(
+  geos: Geos,
+  members: Geometry[],
+  memberSlots: number[],
+  childSlotPos: Map<number, { c: number; pos: number }>,
+): MultiLineStringArray {
+  const dims = checkHomogeneous(geos, members);
+  const chunks: Float64Array[] = [];
+  const lineOffsets = new Int32Array(members.length);
+  let total = 0;
+  const c = childCount(childSlotPos);
+  for (let i = 0; i < members.length; i++) {
+    childSlotPos.set(memberSlots[i]!, { c, pos: i });
+    const coords = coordinates(geos, members[i]!);
+    chunks.push(coords.coords);
+    total += coords.n;
+    lineOffsets[i] = total;
+  }
+  return {
+    kind: "multilinestring",
+    coords: concatCoords(chunks),
+    lineOffsets,
+    hasZ: dims.hasZ,
+    hasM: dims.hasM,
+  };
+}
+
+function membersToPolygonArray(
+  geos: Geos,
+  members: Geometry[],
+  memberSlots: number[],
+  childSlotPos: Map<number, { c: number; pos: number }>,
+): MultiPolygonArray {
+  const dims = checkHomogeneous(geos, members);
+  const parts: Polygonal[] = [];
+  const c = childCount(childSlotPos);
+  for (let i = 0; i < members.length; i++) {
+    childSlotPos.set(memberSlots[i]!, { c, pos: i });
+    if (!isEmpty(geos, members[i]!)) parts.push(polygonalOf(geos, members[i]!));
+  }
+  // dims (not parts[0]) is the truth when every member is empty
+  return { kind: "multipolygon", ...concatPolygonal(parts), hasZ: dims.hasZ, hasM: dims.hasM };
+}
+
+/** Which child index the next membersTo* call gets (call order = index). */
+function childCount(childSlotPos: Map<number, { c: number; pos: number }>): number {
+  // child index = number of distinct `c` values already assigned
+  let max = -1;
+  for (const v of childSlotPos.values()) {
+    if (v.c > max) max = v.c;
+  }
+  return max + 1;
+}
+
+/* shared extraction helpers */
 
 function polygonalOf(geos: Geos, poly: Geometry): Polygonal {
   const ext = geos.borrow(
@@ -418,7 +960,6 @@ function polygonalOf(geos: Geos, poly: Geometry): Polygonal {
     );
   }
   const { hasZ, hasM } = dimensionsOf(geos, poly);
-  const stride = strideOf(hasZ, hasM);
   const ringOffsets = new Int32Array(ringViews.length);
   let total = 0;
   const chunks: Float64Array[] = [];
@@ -428,26 +969,40 @@ function polygonalOf(geos: Geos, poly: Geometry): Polygonal {
     ringOffsets[r] = total;
     chunks.push(c.coords);
   }
-  const coords = new Float64Array(total * stride);
+  return {
+    coords: concatCoords(chunks),
+    ringOffsets,
+    partOffsets: Int32Array.of(ringViews.length),
+    hasZ,
+    hasM,
+  };
+}
+
+function concatCoords(chunks: Float64Array[]): Float64Array {
+  let total = 0;
+  for (const c of chunks) total += c.length;
+  const coords = new Float64Array(total);
   let off = 0;
   for (const c of chunks) {
     coords.set(c, off);
     off += c.length;
   }
-  return { coords, ringOffsets, partOffsets: Int32Array.of(ringViews.length), hasZ, hasM };
+  return coords;
 }
 
-function concatPolygons(parts: Polygonal[]): Polygonal {
-  const stride = checkHomogeneous(parts);
-  const hasZ = parts[0]!.hasZ;
-  const hasM = parts[0]!.hasM;
+function concatPolygonal(parts: Polygonal[]): {
+  coords: Float64Array;
+  ringOffsets: Int32Array;
+  partOffsets: Int32Array;
+  hasZ: boolean;
+  hasM: boolean;
+} {
   const ringOffsets: number[] = [];
   const partOffsets: number[] = [];
+  const chunks: Float64Array[] = [];
   let totalCoords = 0;
   let totalRings = 0;
-  const chunks: Float64Array[] = [];
   for (const p of parts) {
-    // Part coords concatenate in order; ring offsets accumulate globally.
     for (let r = 0; r < p.ringOffsets.length; r++) {
       totalRings++;
       totalCoords += p.ringOffsets[r]! - (r === 0 ? 0 : p.ringOffsets[r - 1]!);
@@ -456,17 +1011,11 @@ function concatPolygons(parts: Polygonal[]): Polygonal {
     partOffsets.push(totalRings);
     chunks.push(p.coords);
   }
-  const coords = new Float64Array(totalCoords * stride);
-  let off = 0;
-  for (const c of chunks) {
-    coords.set(c, off);
-    off += c.length;
-  }
   return {
-    coords,
+    coords: concatCoords(chunks),
     ringOffsets: Int32Array.from(ringOffsets),
     partOffsets: Int32Array.from(partOffsets),
-    hasZ,
-    hasM,
+    hasZ: parts[0]?.hasZ ?? false,
+    hasM: parts[0]?.hasM ?? false,
   };
 }

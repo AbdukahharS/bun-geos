@@ -1,6 +1,6 @@
 # Benchmarks
 
-> Machine: `AMD Ryzen 7 260 w/ Radeon 780M Graphics`, 16 hw threads · Bun 1.4.3 · GEOS 3.14.1-CAPI-1.20.5 · commit `46b141f` · 2026-10-16T13:16:51.167Z
+> Machine: `AMD Ryzen 7 260 w/ Radeon 780M Graphics`, 16 hw threads · Bun 1.4.3 · GEOS 3.14.1-CAPI-1.20.5 · commit `fbd2af7` · 2026-10-17T07:14:57.722Z
 >
 > Best-of-N wall time, warm-up excluded (see `bench/run.ts`). Regenerate with
 > `bun run bench`; this page is rendered by `bun run bench:report`. Competitor
@@ -13,9 +13,9 @@
 
 | variant | ms |
 |---|---|
-| unprepared | 182.8 |
+| unprepared | 180.8 |
 | prepared | 5.7 |
-| prepared+batch | 7.3 |
+| prepared+batch | 7.5 |
 
 _prepared 32× vs unprepared_
 
@@ -23,20 +23,20 @@ _prepared 32× vs unprepared_
 
 | variant | ms |
 |---|---|
-| naive JS envelope scan | 541.8 |
-| strtree | 4.2 |
-| strtree+fused filter | 21.8 |
+| naive JS envelope scan | 482.9 |
+| strtree | 5.8 |
+| strtree+fused filter | 21.7 |
 
-_129× vs naive scan_
+_84× vs naive scan_
 
 ## unionAll ladder (961 aligned tiles)
 
 | variant | ms |
 |---|---|
-| coverage | 4.1 |
-| disjointSubset | 10.8 |
+| coverage | 4.2 |
+| disjointSubset | 10.5 |
 | unary | 9.6 |
-| auto | 4.1 |
+| auto | 4.2 |
 
 _coverage 2× vs unary_
 
@@ -44,14 +44,14 @@ _coverage 2× vs unary_
 
 | variant | ms |
 |---|---|
-| overlay singular | 1477.5 |
-| overlay batch | 1420.3 |
-| mask singular | 263.5 |
-| mask batch | 265.7 |
-| measure singular | 4.9 |
-| measure batch | 6.1 |
-| wkbRead singular | 4161.7 |
-| wkbRead batch | 532.7 |
+| overlay singular | 1411.4 |
+| overlay batch | 1409.5 |
+| mask singular | 250.7 |
+| mask batch | 252.7 |
+| measure singular | 4.3 |
+| measure batch | 5.4 |
+| wkbRead singular | 3698.9 |
+| wkbRead batch | 511.2 |
 
 _engine-native FFI makes per-object calls cheap; batch = one crossing + C loops (D22 note)_
 
@@ -59,18 +59,18 @@ _engine-native FFI makes per-object calls cheap; batch = one crossing + C loops 
 
 | variant | ms |
 |---|---|
-| WKT | 369.5 |
-| GeoJSON | 832.5 |
-| WKB per-geometry | 468.1 |
-| WKB read-many | 37.4 |
+| WKT | 389.3 |
+| GeoJSON | 822.8 |
+| WKB per-geometry | 451.5 |
+| WKB read-many | 34.9 |
 
-_12.5× read-many vs per-geometry_
+_12.9× read-many vs per-geometry_
 
 ## makeValid (1,000 bowties)
 
 | variant | ms |
 |---|---|
-| makeValid | 38.3 |
+| makeValid | 38.0 |
 
 _26 geoms/s_
 
@@ -78,14 +78,24 @@ _26 geoms/s_
 
 | variant | ms |
 |---|---|
-| coverageClean | 5.5 |
+| coverageClean | 4.9 |
+
+## construction batch (10⁵ squares)
+
+| variant | ms |
+|---|---|
+| hull singular | 145.2 |
+| hull batch | 109.8 |
+| centroid batch | 72.8 |
+
+_D27 unary batch layer — one crossing per array (D22 note applies)_
 
 ## parallel makeValid (100000 bowties)
 
 | variant | ms |
 |---|---|
-| calling thread | 4602.3 |
-| worker pool | 1111.3 |
+| calling thread | 4357.7 |
+| worker pool | 1104.2 |
 
 _4× vs per-object calls (concurrency 12, chunkFactor 3 — the ≥5× exit axis, D23; WKB serialization bounds the pool at high ratios)_
 
@@ -93,8 +103,8 @@ _4× vs per-object calls (concurrency 12, chunkFactor 3 — the ≥5× exit axis
 
 | variant | ms |
 |---|---|
-| calling thread | 3.4 |
-| worker pool | 162.1 |
+| calling thread | 4.6 |
+| worker pool | 132.0 |
 
 _1× (WKB transfer bounds light ops)_
 
@@ -102,10 +112,10 @@ _1× (WKB transfer bounds light ops)_
 
 | variant | ms |
 |---|---|
-| 1 worker | 422.9 |
-| 2 workers | 501.2 |
-| 4 workers | 490.1 |
-| 8 workers | 698.3 |
+| 1 worker | 462.0 |
+| 2 workers | 846.0 |
+| 4 workers | 614.0 |
+| 8 workers | 577.8 |
 
 _serialization-bound: the main thread builds 100k chunk WKBs per op (~1s) — cheap-geometry overlays don't parallelize past it; heavy per-item ops do_
 

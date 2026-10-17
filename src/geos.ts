@@ -50,21 +50,46 @@ import {
   type BatchInput,
   type BatchOptions,
   type BufferAllOptions,
+  boundaryAll,
   bufferAll,
+  centroidAll,
+  clipByRectAll,
+  convexHullAll,
   differenceAll,
   differencePrecAll,
   distanceAll,
   frechetAll,
   hausdorffAll,
+  interiorPointAll,
   intersectionAll,
   intersectionPrecAll,
   lengthAll,
+  lineMergeAll,
+  nodeAll,
   predicateAll,
+  sharedPathsAll,
+  simplifyAll,
+  snapAll,
   symDifferenceAll,
   symDifferencePrecAll,
+  topologyPreserveSimplifyAll,
   type UnpreparedPredName,
 } from "./ops/batch.ts";
 import { type BufferOptions, buffer } from "./ops/buffer.ts";
+import { buildArea, node, polygonize } from "./ops/build.ts";
+import {
+  boundary,
+  centroid,
+  clusterDBSCAN,
+  gridIntersectionFractions,
+  interiorPoint,
+  type LargestEmptyCircleOptions,
+  largestEmptyCircle,
+  maximumInscribedCircle,
+  minimumClearance,
+  minimumClearanceLine,
+  nearestPoints,
+} from "./ops/centers.ts";
 import {
   type CoverageCleanOptions,
   type CoverageIsValidOptions,
@@ -73,6 +98,15 @@ import {
   coverageIsValid,
   coverageSimplifyVW,
 } from "./ops/coverage.ts";
+import {
+  type LineMergeOptions,
+  lineMerge,
+  lineSubstring,
+  type OffsetCurveOptions,
+  offsetCurve,
+  sharedPaths,
+  snap,
+} from "./ops/lines.ts";
 import { area, distance, frechet, hausdorff, length } from "./ops/measure.ts";
 import {
   coverageUnion,
@@ -118,11 +152,27 @@ import {
   type SimpleDetail,
   type ValidityDetail,
 } from "./ops/repair.ts";
+import {
+  type ConcaveHullOptions,
+  clipByRect,
+  concaveHull,
+  convexHull,
+  simplify,
+  topologyPreserveSimplify,
+} from "./ops/simplify.ts";
+import {
+  constrainedDelaunay,
+  type DelaunayOptions,
+  delaunay,
+  type VoronoiOptions,
+  voronoi,
+} from "./ops/triangulate.ts";
 import { Parallel } from "./parallel/pool.ts";
 import { STRtree } from "./spatial/strtree.ts";
 import type { Native } from "./symbols.ts";
 import type {
   ArrowArray,
+  ArrowInput,
   CollectionKind,
   CoverageCleanParamsPtr,
   FlatCoords,
@@ -576,7 +626,7 @@ export class Geos implements Disposable {
   ): import("./io/geojson.ts").GeoJSONGeometryObject {
     return toGeoJSON(this, g, opts);
   }
-  fromArrow(arr: ArrowArray): Geometry {
+  fromArrow(arr: ArrowInput): Geometry {
     return fromArrow(this, arr);
   }
   toArrow(g: Geometry): ArrowArray {
@@ -688,6 +738,86 @@ export class Geos implements Disposable {
     return frechet(this, a, b);
   }
 
+  // ── Phase 5 construction ops ──
+  convexHull(g: Geometry): Geometry {
+    return convexHull(this, g);
+  }
+  concaveHull(g: Geometry, ratio: number, opts?: ConcaveHullOptions): Geometry {
+    return concaveHull(this, g, ratio, opts);
+  }
+  simplify(g: Geometry, tolerance: number): Geometry {
+    return simplify(this, g, tolerance);
+  }
+  topologyPreserveSimplify(g: Geometry, tolerance: number): Geometry {
+    return topologyPreserveSimplify(this, g, tolerance);
+  }
+  clipByRect(g: Geometry, xmin: number, ymin: number, xmax: number, ymax: number): Geometry {
+    return clipByRect(this, g, xmin, ymin, xmax, ymax);
+  }
+  delaunay(g: Geometry, opts?: DelaunayOptions): Geometry {
+    return delaunay(this, g, opts);
+  }
+  constrainedDelaunay(g: Geometry): Geometry {
+    return constrainedDelaunay(this, g);
+  }
+  voronoi(g: Geometry, opts?: VoronoiOptions): Geometry {
+    return voronoi(this, g, opts);
+  }
+  lineMerge(g: Geometry, opts?: LineMergeOptions): Geometry {
+    return lineMerge(this, g, opts);
+  }
+  lineSubstring(g: Geometry, start: number, end: number): Geometry {
+    return lineSubstring(this, g, start, end);
+  }
+  offsetCurve(g: Geometry, distance: number, opts?: OffsetCurveOptions): Geometry {
+    return offsetCurve(this, g, distance, opts);
+  }
+  sharedPaths(a: Geometry, b: Geometry): Geometry {
+    return sharedPaths(this, a, b);
+  }
+  snap(a: Geometry, b: Geometry, tolerance: number): Geometry {
+    return snap(this, a, b, tolerance);
+  }
+  node(g: Geometry): Geometry {
+    return node(this, g);
+  }
+  buildArea(g: Geometry): Geometry {
+    return buildArea(this, g);
+  }
+  polygonize(gs: Geometry | readonly Geometry[]): Geometry {
+    return polygonize(this, gs);
+  }
+  centroid(g: Geometry): Geometry {
+    return centroid(this, g);
+  }
+  interiorPoint(g: Geometry): Geometry {
+    return interiorPoint(this, g);
+  }
+  nearestPoints(a: Geometry, b: Geometry): [Geometry, Geometry] {
+    return nearestPoints(this, a, b);
+  }
+  minimumClearance(g: Geometry): number {
+    return minimumClearance(this, g);
+  }
+  minimumClearanceLine(g: Geometry): Geometry {
+    return minimumClearanceLine(this, g);
+  }
+  maximumInscribedCircle(g: Geometry, tolerance: number): Geometry {
+    return maximumInscribedCircle(this, g, tolerance);
+  }
+  largestEmptyCircle(g: Geometry, tolerance: number, opts?: LargestEmptyCircleOptions): Geometry {
+    return largestEmptyCircle(this, g, tolerance, opts);
+  }
+  clusterDBSCAN(gs: Geometry | readonly Geometry[], eps: number, minPoints: number): Int32Array {
+    return clusterDBSCAN(this, gs, eps, minPoints);
+  }
+  gridIntersectionFractions(
+    g: Geometry,
+    grid: { xmin: number; ymin: number; xmax: number; ymax: number; nx: number; ny: number },
+  ): Float32Array {
+    return gridIntersectionFractions(this, g, grid);
+  }
+
   // Envelope & accessors
   geomType(g: Geometry): string {
     return geomType(this, g);
@@ -703,6 +833,9 @@ export class Geos implements Disposable {
   }
   envelope(g: Geometry): Geometry {
     return envelope(this, g);
+  }
+  boundary(g: Geometry): Geometry {
+    return boundary(this, g);
   }
   numGeometries(g: Geometry): number {
     return numGeometries(this, g);
@@ -914,6 +1047,48 @@ export class Geos implements Disposable {
   // Batch buffer — params built once, one crossing.
   bufferAll(gs: BatchInput, distance: number, opts?: BufferAllOptions): Geometry[] {
     return bufferAll(this, gs, distance, opts);
+  }
+
+  // ── Phase 5 construction batches (D27) — one crossing per array ──
+  convexHullAll(gs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return convexHullAll(this, gs, opts);
+  }
+  simplifyAll(gs: BatchInput, tolerance: number, opts?: BatchOptions): Geometry[] {
+    return simplifyAll(this, gs, tolerance, opts);
+  }
+  topologyPreserveSimplifyAll(gs: BatchInput, tolerance: number, opts?: BatchOptions): Geometry[] {
+    return topologyPreserveSimplifyAll(this, gs, tolerance, opts);
+  }
+  clipByRectAll(
+    gs: BatchInput,
+    xmin: number,
+    ymin: number,
+    xmax: number,
+    ymax: number,
+    opts?: BatchOptions,
+  ): Geometry[] {
+    return clipByRectAll(this, gs, xmin, ymin, xmax, ymax, opts);
+  }
+  centroidAll(gs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return centroidAll(this, gs, opts);
+  }
+  boundaryAll(gs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return boundaryAll(this, gs, opts);
+  }
+  interiorPointAll(gs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return interiorPointAll(this, gs, opts);
+  }
+  nodeAll(gs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return nodeAll(this, gs, opts);
+  }
+  lineMergeAll(gs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return lineMergeAll(this, gs, opts);
+  }
+  snapAll(a: Geometry, bs: BatchInput, tolerance: number, opts?: BatchOptions): Geometry[] {
+    return snapAll(this, a, bs, tolerance, opts);
+  }
+  sharedPathsAll(a: Geometry, bs: BatchInput, opts?: BatchOptions): Geometry[] {
+    return sharedPathsAll(this, a, bs, opts);
   }
 
   // Batch WKB ingest (io.md §4): n geometries from one buffer, one crossing.

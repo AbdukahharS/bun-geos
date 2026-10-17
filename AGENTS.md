@@ -77,6 +77,10 @@ Default to Bun for everything (Bun 1.4.x, TypeScript ^7 native as peerDependency
   `src/types.ts`) are the type system's guard against the F8 wrapper/context mixup —
   never widen them. New in Phase 2: `PreparedPred` / `UnionStrategy` numeric ids MUST
   match the shim's `SHIM_PREP_*` / `SHIM_UNION_*` enums (the selftest pins them).
+  Phase 5: `UnaryOp` / `BinaryOp` MUST match the shim's `SHIM_UNARY_*` /
+  `SHIM_BINARY_*` (selftest scenarios 29–30). INT-returning GEOS functions
+  (`GEOSMinimumClearance_r` = 0 ok / 2 failure, `GEOSGridIntersectionFractions_r` =
+  1 ok / 0 fail) are NOT masked.
 - Char-returning GEOS predicates need `& 0xff` (upper register bits are garbage —
   x86-64 psABI); see `charResult` in `src/ops/predicates.ts`. EXCEPTION: int returns
   (`GEOSOrientPolygons_r` = 0 ok / -1 failure, `geos_shim_strtree_nearest` = -1/-2)

@@ -29,6 +29,8 @@ const BUF_JOIN_BEVEL = 3;
 
 const JOIN_IDS = { round: BUF_JOIN_ROUND, mitre: BUF_JOIN_MITRE, bevel: BUF_JOIN_BEVEL } as const;
 
+export { JOIN_IDS };
+
 /**
  * Build a GEOSBufferParams from options. Created per call and always
  * destroyed by the caller (single-singular use) or around the batch call

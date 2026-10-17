@@ -210,10 +210,13 @@ describe("GeoArrow (Phase 1 shapes)", () => {
     expect(geos.equalsIdentical(geos.fromArrow(geos.toArrow(mpoly)), mpoly)).toBe(true);
   });
 
-  it("GeometryCollection is rejected honestly (Phase 5 conformance)", () => {
+  it("GeometryCollection roundtrips via the dense-union shapes (D28)", () => {
     using geos = new Geos();
-    const col = geos.fromWKT("GEOMETRYCOLLECTION (POINT (1 1))");
-    expect(() => geos.toArrow(col)).toThrow(/Phase 5/);
+    const col = geos.fromWKT("GEOMETRYCOLLECTION (POINT (1 1), LINESTRING (0 0, 2 2))");
+    const arr = geos.toArrow(col);
+    expect(arr.kind).toBe("geometrycollection");
+    using back = geos.fromArrow(arr);
+    expect(geos.equalsIdentical(back, col)).toBe(true);
   });
 
   it("validation errors name the offending structure", () => {

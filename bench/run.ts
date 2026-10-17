@@ -358,6 +358,38 @@ console.log("bun-geos benchmarks —", geos.version, `(${navigator.hardwareConcu
   for (const d of dirty) d.dispose();
 }
 
+/* ------------------------------------------ 6b. construction batch (Phase 5)
+ * The D27 unary batch layer vs per-object calls on 10⁵ small polygons. */
+{
+  const N = 100_000;
+  const inputs = squareGrid(N).map((w) => geos.fromWKT(w));
+
+  const hullSingularMs = timeMs(() => {
+    using _arena = geos.arena();
+    for (const g of inputs) checksum += geos.area(geos.convexHull(g));
+  }, 3);
+  const hullBatchMs = timeMs(() => {
+    using _arena = geos.arena();
+    for (const g of geos.convexHullAll(inputs, { arena: _arena })) checksum += geos.area(g);
+  }, 3);
+  const centroidBatchMs = timeMs(() => {
+    using _arena = geos.arena();
+    for (const g of geos.centroidAll(inputs, { arena: _arena })) checksum += geos.area(g);
+  }, 3);
+
+  results.push({
+    name: "construction batch (10⁵ squares)",
+    unit: "ms",
+    values: {
+      "hull singular": hullSingularMs,
+      "hull batch": hullBatchMs,
+      "centroid batch": centroidBatchMs,
+    },
+    note: "D27 unary batch layer — one crossing per array (D22 note applies)",
+  });
+  for (const g of inputs) g.dispose();
+}
+
 /* ------------------------------------------ 7. parallel suite (subprocess) */
 {
   const proc = Bun.spawnSync(["bun", join(import.meta.dir, "parallel.ts")], {

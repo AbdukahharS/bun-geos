@@ -100,11 +100,15 @@ describe("H1: borrowed views cannot be used after their parent is disposed", () 
 });
 
 describe("H2/H3: Arrow shape representability and dimension homogeneity", () => {
-  it("empty MULTI* are rejected honestly (indistinguishable from singular empties)", () => {
+  it("empty MULTI* are representable in shapes v2 and roundtrip (D28)", () => {
     using geos = new Geos();
-    expect(() => geos.toArrow(geos.empty("multipoint"))).toThrow(GeosError);
-    expect(() => geos.toArrow(geos.empty("multilinestring"))).toThrow(GeosError);
-    expect(() => geos.toArrow(geos.empty("multipolygon"))).toThrow(GeosError);
+    for (const kind of ["multipoint", "multilinestring", "multipolygon"] as const) {
+      using g = geos.empty(kind);
+      const arr = geos.toArrow(g);
+      using back = geos.fromArrow(arr);
+      expect(geos.isEmpty(back)).toBe(true);
+      expect(geos.typeId(back)).toBe(geos.typeId(g));
+    }
     // Singular empties DO roundtrip:
     expect(
       geos.equalsIdentical(geos.fromArrow(geos.toArrow(geos.empty("point"))), geos.empty("point")),

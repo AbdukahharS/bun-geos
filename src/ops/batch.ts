@@ -23,12 +23,12 @@ import type { Geos } from "../geos.ts";
 import { abortError, type OpOptions, withSignal } from "../interrupt.ts";
 import { geometriesFromArrow } from "../io/arrow.ts";
 import { geomPtrArray } from "../ptrs.ts";
-import type { ArrowArray, BufferParamsPtr } from "../types.ts";
-import { MeasureOp, OverlayOp, UnpreparedPred } from "../types.ts";
+import type { ArrowInput, BufferParamsPtr } from "../types.ts";
+import { BinaryOp, MeasureOp, OverlayOp, UnaryOp, UnpreparedPred } from "../types.ts";
 import { type BufferOptions, bufferParams } from "./buffer.ts";
 
 /** A batch op input: ready wrappers or an Arrow-shaped value (normalized). */
-export type BatchInput = readonly Geometry[] | ArrowArray;
+export type BatchInput = readonly Geometry[] | ArrowInput;
 
 export interface BatchOptions extends OpOptions {
   /** Register batch outputs with this arena instead of the innermost open one. */
@@ -360,6 +360,216 @@ export function frechetAll(
   opts: BatchOptions = {},
 ): Float64Array {
   return binaryMeasure(geos, MeasureOp.frechet, "frechet", a, bs, opts);
+}
+
+/* ------------------------------------------- construction batches (D27)
+ * Phase 5: the loop-shaped construction ops through `geos_shim_unary_all`
+ * (d1..d4 carry each op's scalar params — simplify tolerance, clip rect)
+ * and the 2-ary ops through `geos_shim_binary_all` (d1 = snap tolerance).
+ * Same D18 contract as every batch path above.
+ */
+
+function unaryBatch(
+  geos: Geos,
+  op: string,
+  opId: number,
+  gs: BatchInput,
+  d1: number,
+  d2: number,
+  d3: number,
+  d4: number,
+  opts: BatchOptions,
+): Geometry[] {
+  return withSignal(geos, opts.signal, () =>
+    withBatchInputs(geos, gs, op, (items, outArena) => {
+      const ptrs = geomPtrArray(geos, items, `${op} (batch)`);
+      const out = new BigUint64Array(items.length);
+      const r = geos.native.shim.geos_shim_unary_all(
+        geos.shim,
+        opId,
+        ptrs,
+        items.length,
+        d1,
+        d2,
+        d3,
+        d4,
+        out,
+      );
+      batchCode(geos, op, r, opts.signal);
+      return geos.takeMany(op, out, opts.arena ?? outArena);
+    }),
+  );
+}
+
+function binaryBatch(
+  geos: Geos,
+  op: string,
+  opId: number,
+  a: Geometry,
+  bs: BatchInput,
+  d1: number,
+  opts: BatchOptions,
+): Geometry[] {
+  return withSignal(geos, opts.signal, () =>
+    withBatchInputs(geos, bs, op, (gs, outArena) => {
+      a.requireSame(geos);
+      const ptrs = geomPtrArray(geos, gs, `${op} (batch)`);
+      const out = new BigUint64Array(gs.length);
+      const r = geos.native.shim.geos_shim_binary_all(
+        geos.shim,
+        opId,
+        a.ptr,
+        ptrs,
+        gs.length,
+        d1,
+        out,
+      );
+      batchCode(geos, op, r, opts.signal);
+      return geos.takeMany(op, out, opts.arena ?? outArena);
+    }),
+  );
+}
+
+/** `out[i] = convexHull(gs[i])`. */
+export function convexHullAll(geos: Geos, gs: BatchInput, opts: BatchOptions = {}): Geometry[] {
+  return unaryBatch(
+    geos,
+    "geos_shim_unary_all:convexHull",
+    UnaryOp.convexHull,
+    gs,
+    0,
+    0,
+    0,
+    0,
+    opts,
+  );
+}
+
+/** `out[i] = simplify(gs[i], tolerance)`. */
+export function simplifyAll(
+  geos: Geos,
+  gs: BatchInput,
+  tolerance: number,
+  opts: BatchOptions = {},
+): Geometry[] {
+  return unaryBatch(
+    geos,
+    "geos_shim_unary_all:simplify",
+    UnaryOp.simplifyDP,
+    gs,
+    tolerance,
+    0,
+    0,
+    0,
+    opts,
+  );
+}
+
+/** `out[i] = topologyPreserveSimplify(gs[i], tolerance)`. */
+export function topologyPreserveSimplifyAll(
+  geos: Geos,
+  gs: BatchInput,
+  tolerance: number,
+  opts: BatchOptions = {},
+): Geometry[] {
+  return unaryBatch(
+    geos,
+    "geos_shim_unary_all:simplifyTP",
+    UnaryOp.simplifyTP,
+    gs,
+    tolerance,
+    0,
+    0,
+    0,
+    opts,
+  );
+}
+
+/** `out[i] = clipByRect(gs[i], xmin, ymin, xmax, ymax)`. */
+export function clipByRectAll(
+  geos: Geos,
+  gs: BatchInput,
+  xmin: number,
+  ymin: number,
+  xmax: number,
+  ymax: number,
+  opts: BatchOptions = {},
+): Geometry[] {
+  return unaryBatch(
+    geos,
+    "geos_shim_unary_all:clipByRect",
+    UnaryOp.clipByRect,
+    gs,
+    xmin,
+    ymin,
+    xmax,
+    ymax,
+    opts,
+  );
+}
+
+/** `out[i] = centroid(gs[i])`. */
+export function centroidAll(geos: Geos, gs: BatchInput, opts: BatchOptions = {}): Geometry[] {
+  return unaryBatch(geos, "geos_shim_unary_all:centroid", UnaryOp.centroid, gs, 0, 0, 0, 0, opts);
+}
+
+/** `out[i] = boundary(gs[i])`. */
+export function boundaryAll(geos: Geos, gs: BatchInput, opts: BatchOptions = {}): Geometry[] {
+  return unaryBatch(geos, "geos_shim_unary_all:boundary", UnaryOp.boundary, gs, 0, 0, 0, 0, opts);
+}
+
+/** `out[i] = interiorPoint(gs[i])`. */
+export function interiorPointAll(geos: Geos, gs: BatchInput, opts: BatchOptions = {}): Geometry[] {
+  return unaryBatch(
+    geos,
+    "geos_shim_unary_all:interiorPoint",
+    UnaryOp.interiorPoint,
+    gs,
+    0,
+    0,
+    0,
+    0,
+    opts,
+  );
+}
+
+/** `out[i] = node(gs[i])`. */
+export function nodeAll(geos: Geos, gs: BatchInput, opts: BatchOptions = {}): Geometry[] {
+  return unaryBatch(geos, "geos_shim_unary_all:node", UnaryOp.node, gs, 0, 0, 0, 0, opts);
+}
+
+/** `out[i] = lineMerge(gs[i])`. */
+export function lineMergeAll(geos: Geos, gs: BatchInput, opts: BatchOptions = {}): Geometry[] {
+  return unaryBatch(geos, "geos_shim_unary_all:lineMerge", UnaryOp.lineMerge, gs, 0, 0, 0, 0, opts);
+}
+
+/** `out[i] = snap(a, bs[i], tolerance)` — `a` broadcasts. */
+export function snapAll(
+  geos: Geos,
+  a: Geometry,
+  bs: BatchInput,
+  tolerance: number,
+  opts: BatchOptions = {},
+): Geometry[] {
+  return binaryBatch(geos, "geos_shim_binary_all:snap", BinaryOp.snap, a, bs, tolerance, opts);
+}
+
+/** `out[i] = sharedPaths(a, bs[i])` — `a` broadcasts. */
+export function sharedPathsAll(
+  geos: Geos,
+  a: Geometry,
+  bs: BatchInput,
+  opts: BatchOptions = {},
+): Geometry[] {
+  return binaryBatch(
+    geos,
+    "geos_shim_binary_all:sharedPaths",
+    BinaryOp.sharedPaths,
+    a,
+    bs,
+    0,
+    opts,
+  );
 }
 
 /* ------------------------------------------------------------ buffer */

@@ -562,6 +562,97 @@ platform smoke tests load the STAGED tree via `BUN_GEOS_PACKAGE_DIR`
 (loader override), so what is smoked is what ships. The token is the only
 long-lived secret until the OIDC switch retires it.
 
+## D27 — Construction-op batch layer: one unary op-id table + one binary table; the corpus gate closes the loop
+
+**Context.** Phase 5 M3 completed the api-surface construction ops (hulls,
+simplification, clipping, triangulations, line ops, node/buildArea/
+polygonize, centroid/interiorPoint/nearestPoints, clearance, inscribed and
+empty circles, DBSCAN clustering, grid fractions). Most are loop-shaped
+1-in-1-out geometry→geometry ops — D22's one-crossing principle applies —
+but a dozen per-op shim functions would be shim bloat (shim.md §3).
+
+**Decision.** TWO new shim functions with op-id tables, following the D18
+contract exactly (0 ok / 1 exception / 2 interrupted; interrupt checks
+between items; `destroy_partials` on every failure path; inputs borrowed):
+
+- `geos_shim_unary_all(shim, opId, gs, n, d1..d4, out)` — `SHIM_UNARY_*`
+  ids (convexHull, simplifyDP, simplifyTP, centroid, boundary,
+  interiorPoint, node, lineMerge, clipByRect); `d1..d4` carry each op's
+  scalar params (simplify tolerance, clip rectangle) and are ignored by
+  the rest.
+- `geos_shim_binary_all(shim, opId, a, gs, n, d1, out)` — `SHIM_BINARY_*`
+  ids (snap with d1 = tolerance, sharedPaths). `a` broadcasts, matching
+  the element-wise `*All` shape.
+
+Both tables mirror `UnaryOp`/`BinaryOp` in `src/types.ts` and are pinned
+by known-answer selftest scenarios (29–30, the D22 discipline). Ops with
+rich or per-call C objects (concaveHull options, offset-curve params,
+voronoi envelope, delaunay flags, lineSubstring fractions, nearestPoints'
+coord-sequence return, clusterDBSCAN's ClusterInfo, grid fractions) stay
+singular-only — there is no batch wrapper for an op whose param object
+would be rebuilt per item anyway.
+
+Engine facts recorded (they generalize): `GEOSMinimumClearance_r` is an
+INT return (0 ok / 2 failure — NOT a masked char); `GEOSPolygonize_r`
+borrows its input array; `GEOSSharedPaths_r` is LINEAL-only and throws
+`IllegalArgumentException` on areal inputs; `GEOSClusterInfo_*` hands out
+a GEOS-owned `size_t*` per-input id array (freed with `GEOSFree_r`;
+SIZE_MAX = noise → -1 in the public `Int32Array`).
+
+**Consequences.** The construction surface ships batch-first (convexHullAll,
+centroidAll, simplifyAll, topologyPreserveSimplifyAll, clipByRectAll,
+boundaryAll, interiorPointAll, nodeAll, lineMergeAll, snapAll,
+sharedPathsAll); per-object calls remain the honest baseline on Bun 1.4.x
+(the D22 note applies verbatim). The XML corpus differential gate now
+executes the convexHull/simplify/centroid/interiorPoint/boundary/
+minClearance corpus files — 8.7k+ ops, and the only sanctioned gap left is
+`densify` (GEOS's Densifier is C++-only; permanent).
+
+---
+
+## D28 — GeoArrow shapes v2: tagged kinds, null bitmaps, dense-union collections, golden-byte conformance
+
+**Context.** The Phase 1 Arrow shapes (`FlatCoords`/`LineArray`/`Polygonal`)
+were deliberately honest about their limits: empty MULTI\* were
+unrepresentable (indistinguishable from their singular empty), a batch of
+MULTI\* geometries could not ride the flat shapes, GeometryCollection threw,
+and there were no null slots — four throw sites said "Phase 5 adds this".
+
+**Decision.** Tagged shapes v2 (`src/types.ts`), zero-dependency:
+
+1. `kind` names the GeoArrow extension type; `fromArrow` accepts the
+   tagged shapes AND the legacy untagged ones (inferred by shape);
+   `toArrow` emits tagged only.
+2. `validity?: Uint8Array` — the Arrow LSB bitmap on multi\* shapes.
+   Batch slots honor `nullMode`: `"throw"` (default, names the slot) or
+   `"skip"` (omits — cardinality change, documented loudly). Singular
+   `fromArrow` rejects null slots. Null slots are NEVER constructed (their
+   coord space may hold NaN padding — the reference implementation's does).
+3. Empty MULTI\* = length-0 offsets; an empty MEMBER = a repeated offset
+   (POINT EMPTY), mirroring Arrow's non-decreasing list offsets (point
+   slots validate non-decreasing; ring/line/part offsets stay strict).
+4. `geometrycollection` = the dense-union emulation: `types`/`offsets`
+   into `children` (homogeneous typed arrays); unreferenced child members
+   are disposed (ownership stays exact, all-or-nothing on bad slots).
+5. The member rule: multi\* members are leaf geometries — one shape is one
+   MULTI\* geometry and simultaneously a batch of member slots.
+6. Conformance is differential, not asserted: `scripts/geoarrow-goldens.py`
+   (geoarrow-pyarrow, the reference implementation) generates golden
+   buffers — canonical `struct<x,y>` + int32 list offsets + LSB validity —
+   committed as `test/differential/geoarrow-goldens.json`; the test maps
+   canonical ↔ interleaved in BOTH directions (bytes → geometry → WKT, and
+   geometry → packed bytes). Regeneration needs only the venv; the runtime
+   carries zero dependencies.
+7. The audit H3 guard survives: mixed-dimension members still throw
+   (per-member stride check in every member-array builder).
+
+**Consequences.** `geos.toArrow(MULTIPOINT EMPTY)` roundtrips; a batch of
+n multipolygon slots rides one `geos_shim_build_polygonal_many` crossing;
+null-bearing columns ingest with explicit null semantics; the
+`geoarrow.*` extension-name mapping is documented (io.md §5) and pinned by
+bytes, not prose. Cost: `toArrow` output is a breaking shape change
+(tagged) — acceptable at 0.1.0, legacy input stays accepted.
+
 ---
 
 ## Open design work (tracked, not yet decided in detail)

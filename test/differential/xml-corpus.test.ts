@@ -142,27 +142,28 @@ const FILES = [
   // buffer (result-matcher semantics)
   "general/TestBuffer.xml",
   "general/TestBufferMitredJoin.xml",
+  // hulls, simplification, clipping, centers, clearance (Phase 5 M3 ops)
+  "general/TestConvexHull.xml",
+  "general/TestConvexHull-big.xml",
+  "general/TestSimplify.xml",
+  "general/TestCentroid.xml",
+  "general/TestInteriorPoint.xml",
+  "general/TestMinimumClearance.xml",
+  "general/TestBoundary.xml",
+  // densify: the one permanent gap (C++-only, no C API) — every op in this
+  // file lands in KNOWN_GAPS with a reason, never a silent skip
+  "general/TestDensify.xml",
   // regression set
   ...ISSUE_FILES,
 ];
 
 /**
- * The ONLY sanctioned skips (D29): op name → reason. Phase 5 M3 deletes
- * entries as ops land; `densify` is permanent (C++-only, no C API).
+ * The ONLY sanctioned skips (D29): op name → reason. `densify` is permanent
+ * (GEOS's Densifier is C++-only, no C API). Every M3 gap entry died when the
+ * op landed; anything new appearing in a gated file fails the gate.
  */
 const KNOWN_GAPS: Record<string, string> = {
   densify: "Densifier is C++-only — no geos_c binding exists (permanent)",
-  convexhull: "Phase 5 M3 C1 (convexHull)",
-  simplifydp: "Phase 5 M3 C1 (simplify)",
-  simplifytp: "Phase 5 M3 C1 (topologyPreserveSimplify)",
-  getboundary: "Phase 5 accessors (boundary)",
-  getcentroid: "Phase 5 M3 C5 (centroid)",
-  getinteriorpoint: "Phase 5 M3 C5 (interiorPoint)",
-  minclearance: "Phase 5 M3 C5 (minimumClearance)",
-  minclearanceline: "Phase 5 M3 C5 (minimumClearanceLine)",
-  linemerge: "Phase 5 M3 C3 (lineMerge)",
-  polygonize: "Phase 5 M3 C4 (polygonize)",
-  buildarea: "Phase 5 M3 C4 (buildArea)",
 };
 
 interface CorpusOp {
@@ -354,7 +355,7 @@ class Executor {
       out.subarray(2, 3),
       out.subarray(3, 4),
     );
-    if ((rc & 0xff) !== 1) throw new Error("GEOSGeom_getExtent_r failed");
+    if (rc !== 1) throw new Error("GEOSGeom_getExtent_r failed"); // int return — no mask
     return Math.min(out[2]! - out[0]!, out[3]! - out[1]!) * 1e-9;
   }
 
@@ -555,6 +556,41 @@ class Executor {
         using r = g.makeValid(a);
         using expected = this.readExpected(op, c.scale);
         return g.equals(r, expected) ? true : `got ${g.toWKT(r)}`;
+      }
+
+      /* ── Phase 5 construction ops (M3) ── */
+      case "convexhull": {
+        using r = g.convexHull(a);
+        return this.xmlEquals(r, this.readExpected(op, c.scale)) ? true : `got ${g.toWKT(r)}`;
+      }
+      case "simplifydp":
+      case "simplifytp": {
+        const tol = Number(op.arg2);
+        using r =
+          op.name === "simplifydp" ? g.simplify(a, tol) : g.topologyPreserveSimplify(a, tol);
+        return this.xmlEquals(r, this.readExpected(op, c.scale)) ? true : `got ${g.toWKT(r)}`;
+      }
+      case "getboundary": {
+        using r = g.boundary(a);
+        return this.xmlEquals(r, this.readExpected(op, c.scale)) ? true : `got ${g.toWKT(r)}`;
+      }
+      case "getcentroid": {
+        using r = g.centroid(a);
+        return this.xmlEquals(r, this.readExpected(op, c.scale)) ? true : `got ${g.toWKT(r)}`;
+      }
+      case "getinteriorpoint": {
+        using r = g.interiorPoint(a);
+        return this.xmlEquals(r, this.readExpected(op, c.scale)) ? true : `got ${g.toWKT(r)}`;
+      }
+      case "minclearance": {
+        // XMLTester clamps +Inf to DBL_MAX before the double comparison
+        let v = g.minimumClearance(a);
+        if (v > Number.MAX_VALUE) v = Number.MAX_VALUE;
+        return numMatches(Number(op.expected), v) ? true : `expected ${op.expected}, got ${v}`;
+      }
+      case "minclearanceline": {
+        using r = g.minimumClearanceLine(a);
+        return this.xmlEquals(r, this.readExpected(op, c.scale)) ? true : `got ${g.toWKT(r)}`;
       }
 
       default:

@@ -1,19 +1,19 @@
 {
-  "when": "2026-10-16T13:16:51.167Z",
+  "when": "2026-10-17T07:14:57.722Z",
   "geos": "3.14.1-CAPI-1.20.5",
   "bun": "1.4.3",
   "cpu": "AMD Ryzen 7 260 w/ Radeon 780M Graphics",
   "hwThreads": 16,
-  "commit": "46b141f",
+  "commit": "fbd2af7",
   "schema": 2,
   "results": [
     {
       "name": "prepared scan (1 polygon × 100k points)",
       "unit": "ms",
       "values": {
-        "unprepared": 182.78992500000004,
-        "prepared": 5.740635999999995,
-        "prepared+batch": 7.288049000000001
+        "unprepared": 180.81071700000007,
+        "prepared": 5.690189000000146,
+        "prepared+batch": 7.50094399999989
       },
       "note": "prepared 32× vs unprepared"
     },
@@ -21,20 +21,20 @@
       "name": "STRtree query (100000 items × 1000 envelopes)",
       "unit": "ms",
       "values": {
-        "naive JS envelope scan": 541.846399,
-        "strtree": 4.194162000000688,
-        "strtree+fused filter": 21.827620999999453
+        "naive JS envelope scan": 482.93863899999997,
+        "strtree": 5.754940999999235,
+        "strtree+fused filter": 21.725679000000127
       },
-      "note": "129× vs naive scan"
+      "note": "84× vs naive scan"
     },
     {
       "name": "unionAll ladder (961 aligned tiles)",
       "unit": "ms",
       "values": {
-        "coverage": 4.108021000000008,
-        "disjointSubset": 10.84373400000004,
-        "unary": 9.581874999999854,
-        "auto": 4.131214
+        "coverage": 4.185809999999947,
+        "disjointSubset": 10.463693999999123,
+        "unary": 9.584139999999934,
+        "auto": 4.177734999999302
       },
       "note": "coverage 2× vs unary"
     },
@@ -42,14 +42,14 @@
       "name": "batch vs singular (10⁵ squares)",
       "unit": "ms",
       "values": {
-        "overlay singular": 1477.4608010000002,
-        "overlay batch": 1420.3116169999994,
-        "mask singular": 263.54393699999855,
-        "mask batch": 265.69264900000053,
-        "measure singular": 4.907170999998925,
-        "measure batch": 6.061235999997734,
-        "wkbRead singular": 4161.655319000001,
-        "wkbRead batch": 532.6771440000011
+        "overlay singular": 1411.3890690000007,
+        "overlay batch": 1409.5409379999983,
+        "mask singular": 250.73523299999943,
+        "mask batch": 252.68501000000106,
+        "measure singular": 4.3086289999992005,
+        "measure batch": 5.351840999999695,
+        "wkbRead singular": 3698.8654629999983,
+        "wkbRead batch": 511.23472400000173
       },
       "note": "engine-native FFI makes per-object calls cheap; batch = one crossing + C loops (D22 note)"
     },
@@ -57,18 +57,18 @@
       "name": "ingest (20000 squares)",
       "unit": "ms",
       "values": {
-        "WKT": 369.51491499999975,
-        "GeoJSON": 832.5160499999984,
-        "WKB per-geometry": 468.12323800000013,
-        "WKB read-many": 37.428180999995675
+        "WKT": 389.3183379999973,
+        "GeoJSON": 822.7801080000063,
+        "WKB per-geometry": 451.4787510000024,
+        "WKB read-many": 34.87985200001276
       },
-      "note": "12.5× read-many vs per-geometry"
+      "note": "12.9× read-many vs per-geometry"
     },
     {
       "name": "makeValid (1,000 bowties)",
       "unit": "ms",
       "values": {
-        "makeValid": 38.273277000000235
+        "makeValid": 38.001648999998
       },
       "note": "26 geoms/s"
     },
@@ -76,15 +76,25 @@
       "name": "coverageClean (dirty 20×20 coverage)",
       "unit": "ms",
       "values": {
-        "coverageClean": 5.450710999997682
+        "coverageClean": 4.922140000009676
       }
+    },
+    {
+      "name": "construction batch (10⁵ squares)",
+      "unit": "ms",
+      "values": {
+        "hull singular": 145.21695800000452,
+        "hull batch": 109.7532540000102,
+        "centroid batch": 72.81309700000565
+      },
+      "note": "D27 unary batch layer — one crossing per array (D22 note applies)"
     },
     {
       "name": "parallel makeValid (100000 bowties)",
       "unit": "ms",
       "values": {
-        "calling thread": 4602.290290000001,
-        "worker pool": 1111.259855999997
+        "calling thread": 4357.744489,
+        "worker pool": 1104.2071450000003
       },
       "note": "4× vs per-object calls (concurrency 12, chunkFactor 3 — the ≥5× exit axis, D23; WKB serialization bounds the pool at high ratios)"
     },
@@ -92,8 +102,8 @@
       "name": "parallel mask scan (100000 bowties × 1 polygon)",
       "unit": "ms",
       "values": {
-        "calling thread": 3.392948000000615,
-        "worker pool": 162.12819600000512
+        "calling thread": 4.640526999999565,
+        "worker pool": 132.03233900000123
       },
       "note": "1× (WKB transfer bounds light ops)"
     },
@@ -101,10 +111,10 @@
       "name": "parallel overlay scaling (10⁵ squares × wobble(720))",
       "unit": "ms",
       "values": {
-        "1 worker": 422.8761650000015,
-        "2 workers": 501.18529700000363,
-        "4 workers": 490.0566590000017,
-        "8 workers": 698.3258889999997
+        "1 worker": 462.02270399999907,
+        "2 workers": 846.043533,
+        "4 workers": 614.0079469999982,
+        "8 workers": 577.8234139999986
       },
       "note": "serialization-bound: the main thread builds 100k chunk WKBs per op (~1s) — cheap-geometry overlays don't parallelize past it; heavy per-item ops do"
     }
