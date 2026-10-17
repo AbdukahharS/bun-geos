@@ -178,6 +178,18 @@ const GEOS_TABLE = {
   GEOSCoveredBy_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
   GEOSEquals_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
   GEOSEqualsIdentical_r: { args: ["ptr", "ptr", "ptr"], returns: "i32" },
+  // structural equality with tolerance (XMLTester's checkOverlaySuccess
+  // fallback; corpus-gate use — no public wrapper yet)
+  GEOSEqualsExact_r: { args: ["ptr", "ptr", "ptr", "f64"], returns: "i32" },
+  // envelope extent (corpus-gate snap tolerance; candidate for the public
+  // accessor surface — tracked with the M5 reference pass)
+  GEOSGeom_getExtent_r: {
+    args: ["ptr", "ptr", "ptr", "ptr", "ptr", "ptr"],
+    returns: "i32",
+  },
+  // in-place canonical re-ordering (XMLTester compares normalize()-d results;
+  // the corpus gate uses it — no public wrapper yet, M5 reference will note it)
+  GEOSNormalize_r: { args: ["ptr", "ptr"], returns: "i32" },
   GEOSRelatePattern_r: { args: ["ptr", "ptr", "ptr", "cstring"], returns: "i32" },
   GEOSRelate_r: { args: ["ptr", "ptr", "ptr"], returns: "ptr" },
   GEOSisValid_r: { args: ["ptr", "ptr"], returns: "i32" },
