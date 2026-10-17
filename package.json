@@ -1,6 +1,6 @@
 {
   "name": "@shzd/bun-geos",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Bun-native TypeScript bindings for GEOS 3.14 — PostGIS-grade overlays, topology repair, and coverage algebra at native speed.",
   "module": "index.ts",
   "type": "module",

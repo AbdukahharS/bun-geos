@@ -65,7 +65,7 @@ const manifest = {
   version: repo.version,
   description: repo.description,
   license: repo.license,
-  repository: { type: "git", url: "git+https://github.com/shzd/bun-geos.git" },
+  repository: { type: "git", url: "git+https://github.com/AbdukahharS/bun-geos.git" },
   type: "module",
   // Raw TS source (D1: Bun-only) — no build step, no bundler, no d.ts
   // generation. Consumers' Bun runs the source; their TS 7 reads the types

@@ -189,35 +189,32 @@ matters, add strip to `scripts/native/shim.ts` per-target — deliberately defer
 Local rehearsal without burning versions: `bun run release:dry-run` (verdaccio in Docker:
 publish → resolve → clean `bun add` → overlay). Requires only Docker.
 
-### 7.5 Auth: granular token now, trusted publishing later (D26)
+### 7.5 Auth: trusted publishing (OIDC) since 0.0.2; token was the bootstrap
 
-Today: `NPM_TOKEN` (granular) via the `release` environment; release.ts writes a per-package
-`.npmrc` with `${NPM_TOKEN}` env interpolation (never a plaintext secret on disk), publishes
-with `--access public`, and removes the file. npm reads `.npmrc` from the project root only —
-it does NOT walk ancestors; the file must sit next to the staged manifest.
+**0.0.1 bootstrap (2026-10-16):** granular token → `EOTP` — granular tokens do not bypass
+2FA-enforced publishing, and npm is deprecating 2FA-bypassing tokens outright
+(gh.io/npm-gat-bypass2fa-deprecation). The first release was therefore published
+**interactively from a maintainer checkout** (`npm publish` per staged dir; the CLI's
+browser-auth flow handles 2FA) — which created the 8 packages, the prerequisite for trusted
+publishers.
 
-Later — the switch to **trusted publishing** (npm OIDC), verified against the npm docs
-(Oct 2026) and deliberately designed-for:
+**Steady state (0.0.2+): npm trusted publishing.** Each package's settings on npmjs.com
+carry a trusted publisher: GitHub Actions → org/repo → workflow filename `release.yml` →
+environment `release` → allowed action: direct `npm publish` (post-Sep-2026 configs default
+to stage-only — opt in explicitly). Constraints verified against the npm docs (Oct 2026):
 
-- Trusted publishers are configured **per package on npmjs.com** (repo + workflow filename +
-  optional environment) and only for packages that already exist → the 8 packages bootstrap
-  with the token first; then each gets its trusted-publisher config.
-- An unvalidated config **expires in 2 days** (first successful publish binds it) — configure
-  and immediately publish.
-- Configs are immutable: renaming `release.yml` means deleting + recreating all 8.
-- Validation checks the **calling** workflow's filename — which is why `release.yml` contains
-  the build matrix AND the publish job in one file (no `workflow_call` indirection).
-- `repository.url` must exactly match the GitHub repo (all 8 manifests already carry it).
-- GitHub-hosted runners only (we are), npm ≥ 11.5.1 / Node ≥ 22.14 (publish job pins 22).
-- Provenance is automatic via OIDC from a public repo (no `--provenance` flag needed).
-- Post-Sep-2026 configs default to **stage-only**; the config must explicitly allow direct
-  `npm publish`. `dist-tag` management is a separate permission — we don't use prerelease
-  channels; leave it off.
+- Unvalidated configs expire after **2 days**; the first OIDC publish binds them.
+- Configs are immutable — renaming `release.yml` means deleting + recreating all 8.
+- Validation checks the **calling** workflow's filename — `release.yml` deliberately
+  contains the build matrix AND the publish job (no `workflow_call` indirection).
+- `repository.url` must exactly match the GitHub repo (all 8 manifests carry it).
+- GitHub-hosted runners only; npm ≥ 11.5.1 / Node ≥ 22.14 (publish job pins Node 24).
+- Provenance is automatic via OIDC from a public repo — no `--provenance` flag.
+- `dist-tag` management is a separate permission (off; we don't ship prerelease channels).
 
-Switch procedure: configure ×8 → flip `release.yml` to `--auth oidc` + `permissions:
-id-token: write` (already declared) → publish within 2 days → revoke the token → optionally
-set "Require 2FA and disallow tokens" per package (npm's maximum-security posture). Estimated:
-one release cycle.
+`release.ts --auth oidc` requires no secrets; `--auth token` remains as break-glass
+(granular token in the `release` environment). Restrict token access per package
+("Require 2FA and disallow tokens") once OIDC is proven.
 
 **darwin-x64 execution coverage (2026-10):** the cross build on macos-14 is
 validated statically (`scripts/native/arch-check.ts`: every staged binary is

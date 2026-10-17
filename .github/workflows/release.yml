@@ -290,7 +290,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22" # npm ≥ 11.5.1 (also the OIDC-switch floor)
+          # npm ≥ 11.5.1 — the trusted-publishing (OIDC) floor; Node 22's
+          # bundled npm 10.x is too old. (The ≥ 22.14 floor is met too.)
+          node-version: "24"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -322,6 +324,5 @@ jobs:
 
       - name: Publish (platforms → verify → main → GitHub release)
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           GH_TOKEN: ${{ github.token }}
-        run: bun run scripts/release.ts --auth token
+        run: bun run scripts/release.ts --auth oidc

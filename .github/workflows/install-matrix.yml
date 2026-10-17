@@ -69,7 +69,7 @@ jobs:
         id: run
         run: |
           set -euo pipefail
-          START=$(date +%s%3N)
+          START=$(date +%s)
           DIR=$(mktemp -d)
           cd "$DIR"
           echo '{"name":"probe","private":true}' > package.json
@@ -80,17 +80,17 @@ jobs:
           esac
           cp "${{ github.workspace }}/scripts/install-overlay.ts" .
           bun run install-overlay.ts
-          END=$(date +%s%3N)
-          MS=$((END - START))
-          echo "ms=$MS" >> "$GITHUB_OUTPUT"
-          echo "install+overlay took ${MS} ms on ${{ matrix.os }} / ${{ matrix.pm }}"
-          if [ "$MS" -gt $((BUDGET_SECONDS * 1000)) ]; then
-            echo "OVER BUDGET: ${MS}ms > ${BUDGET_SECONDS}s" >&2
+          END=$(date +%s)
+          SECS=$((END - START))
+          echo "install+overlay took ${SECS}s on ${{ matrix.os }} / ${{ matrix.pm }}"
+          echo "secs=$SECS" >> "$GITHUB_OUTPUT"
+          if [ "$SECS" -gt "$BUDGET_SECONDS" ]; then
+            echo "OVER BUDGET: ${SECS}s > ${BUDGET_SECONDS}s" >&2
             exit 1
           fi
 
       - name: Record timing
-        run: echo "| ${{ matrix.os }} | ${{ matrix.pm }} | ${{ steps.run.outputs.ms }} ms | ok |" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "| ${{ matrix.os }} | ${{ matrix.pm }} | ${{ steps.run.outputs.secs }} s | ok |" >> "$GITHUB_STEP_SUMMARY"
 
   alpine:
     name: alpine:3.20 (musl) / bun+npm+pnpm

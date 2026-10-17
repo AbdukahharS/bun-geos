@@ -121,13 +121,13 @@ async function packageTarget(target: Target, outRoot: string, version: string): 
     version,
     description: `GEOS ${GEOS_TAG} binaries + shim for @shzd/bun-geos on ${target.id} — do not install directly.`,
     license: "MIT AND LGPL-2.1-or-later",
-    repository: { type: "git", url: "git+https://github.com/shzd/bun-geos.git" },
+    repository: { type: "git", url: "git+https://github.com/AbdukahharS/bun-geos.git" },
     os: [target.os],
     cpu: [target.arch],
     files: [...files, "LICENSE", "THIRD_PARTY.md", "README.md"],
     publishConfig: { access: "public" },
   };
-  if (target.libc) manifest.libc = [target.libc];
+  if (target.libc) manifest.libc = [target.libc === "gnu" ? "glibc" : target.libc];
   writeFileSync(join(stage, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
   // 4. Minimal README (package page placeholder; the API lives in the main

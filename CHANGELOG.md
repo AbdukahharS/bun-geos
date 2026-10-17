@@ -7,6 +7,21 @@ version gating.
 Format: Keep a Changelog-ish; semver-ish (0.0.x while the release pipeline hardens; 0.1.0 is
 the Phase-5 hardened release).
 
+## 0.0.2 — Phase 4 (packaging fixes) — first trusted-published release
+
+**Fixed:**
+
+- Platform manifests declared `libc: ["gnu"]`; npm's field vocabulary is `glibc`/`musl`, so
+  **npm on Linux skipped both linux packages** (bun ignores the field — the two managers
+  diverged). Now `libc: ["glibc"]` for the `-gnu` packages. (musl was always correct.)
+- `repository.url` pointed at the wrong org; npm trusted publishing requires an exact match.
+
+**Changed:**
+
+- Publishing switched to **npm trusted publishing (OIDC)** — no tokens in CI. The 0.0.1
+  bootstrap was published interactively because granular tokens do not bypass 2FA-enforced
+  publishing (`EOTP`), and npm is deprecating 2FA-bypassing tokens outright.
+
 ## 0.0.1 — Phase 4 (packaging & release) — first publish
 
 The first npm release. The library surface itself was completed across Phases 1–3 (see the
