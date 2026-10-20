@@ -1,5 +1,7 @@
 # @shzd/bun-geos
 
+[![Documentation](https://img.shields.io/badge/docs-bun--geos.cirth.app-0f766e)](https://bun-geos.cirth.app)
+
 **Bun-native TypeScript bindings for [GEOS](https://libgeos.org) 3.14 — the geometry engine
 inside PostGIS — for complex overlays, topology repair, and boolean operations at native speed.**
 
