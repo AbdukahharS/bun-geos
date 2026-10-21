@@ -14,7 +14,10 @@
  * Idempotent: any package already on the registry at the repo version is
  * skipped, so a failed release re-runs cleanly.
  *
- * Usage: bun run scripts/release.ts [--auth token|oidc] [--dry-run]
+ * Dist-tag (D30): a stable version publishes under `latest`; a prerelease
+ * (e.g. 0.2.0-rc.1) under `rc` — `--tag latest` for a prerelease hard-fails.
+ *
+ * Usage: bun run scripts/release.ts [--auth token|oidc] [--tag <name>] [--dry-run]
  */
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -45,6 +48,26 @@ function repoVersion(): string {
 }
 
 const VERSION = repoVersion();
+
+// D30: a prerelease version (e.g. 0.2.0-rc.1) NEVER rides `latest` — it
+// publishes under the `rc` dist-tag so default install ranges stay on the
+// last stable release. An explicit `--tag latest` for a prerelease is a
+// hard error (the one way the convention could be silently violated).
+const tagArg = argv.includes("--tag")
+  ? ((): string => {
+      const v = argv[argv.indexOf("--tag") + 1];
+      if (!v || v.startsWith("-")) throw new Error("release: --tag requires a value");
+      return v;
+    })()
+  : null;
+const IS_PRERELEASE = VERSION.includes("-");
+const NPM_TAG = tagArg ?? (IS_PRERELEASE ? "rc" : "latest");
+if (IS_PRERELEASE && NPM_TAG === "latest") {
+  throw new Error(
+    `release: ${VERSION} is a prerelease — dist-tag 'latest' is not allowed (D30); ` +
+      "publish it as --tag rc (or another explicit channel)",
+  );
+}
 
 function step(msg: string): void {
   console.log(`\n=== ${msg} ===`);
@@ -103,8 +126,11 @@ async function publish(dir: string, name: string): Promise<"published" | "skippe
     // repository.url exact, trusted-publisher config on npmjs.com.
     const res =
       auth === "oidc"
-        ? await $`npm publish --access public --provenance`.cwd(dir).quiet().nothrow()
-        : await $`npm publish --access public`.cwd(dir).quiet().nothrow();
+        ? await $`npm publish --access public --provenance --tag ${NPM_TAG}`
+            .cwd(dir)
+            .quiet()
+            .nothrow()
+        : await $`npm publish --access public --tag ${NPM_TAG}`.cwd(dir).quiet().nothrow();
     if (res.exitCode !== 0) {
       const stderr = res.stderr.toString().trim();
       throw new Error(`release: npm publish failed for ${name}\n${stderr}`);
@@ -112,7 +138,7 @@ async function publish(dir: string, name: string): Promise<"published" | "skippe
   } finally {
     if (auth === "token") rmSyncSafe(npmrcPath);
   }
-  console.log(`release: published ${name}@${VERSION}`);
+  console.log(`release: published ${name}@${VERSION} → dist-tag ${NPM_TAG}`);
   return "published";
 }
 
@@ -182,6 +208,9 @@ step("check");
     }
   }
   console.log(`release: 8 packages staged at ${VERSION}, tree clean`);
+  if (IS_PRERELEASE) {
+    console.log(`release: ${VERSION} is a prerelease → dist-tag '${NPM_TAG}' (D30)`);
+  }
 }
 
 // ── 2. Publish platforms ─────────────────────────────────────────────────

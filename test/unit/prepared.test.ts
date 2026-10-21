@@ -1,5 +1,5 @@
 /**
- * Prepared predicates (Phase 2, api-surface §Prepared): singular agreement
+ * Prepared predicates (Phase 2, archived api-surface §Prepared): singular agreement
  * with the unprepared twins, XY fast paths, DE-9IM, batch masks, and the
  * D17 lifecycle rules (dispose order, pins).
  */

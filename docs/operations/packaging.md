@@ -100,7 +100,8 @@ cc() fallback path was dropped — never production-relevant).
 
 Each job: fetch pinned GEOS 3.14.x source → CMake build (shared libs) → build shim against
 it → strip → stage package with `LICENSE` + `THIRD_PARTY.md`
-([licensing](licensing.md)) → `npm publish --access public`.
+([licensing](licensing.md)) → `npm publish --access public --tag <channel>` (stable →
+`latest`, prerelease → `rc` — D30).
 
 **A GEOS bump = re-run the pipeline = a `@shzd/bun-geos` release.** That is the entire
 version story users ever see (D5).
@@ -240,7 +241,10 @@ documents repo-side fixes that ship with 0.1.0); the registry's `latest` was 0.0
 - `repository.url` must exactly match the GitHub repo (all 8 manifests carry it).
 - GitHub-hosted runners only; npm ≥ 11.5.1 / Node ≥ 22.14 (publish job pins Node 24).
 - Provenance is automatic via OIDC from a public repo — no `--provenance` flag.
-- `dist-tag` management is a separate permission (off; we don't ship prerelease channels).
+- `dist-tag` management is a separate permission (still off) — the `rc`
+  channel (D30) is set at publish time via `--tag rc`, never via
+  `npm dist-tag` on existing versions, and `latest` never points at a
+  prerelease (`release.ts` hard-fails that combination).
 
 `release.ts --auth oidc` requires no secrets; `--auth token` remains as break-glass
 (granular token in the `release` environment). Restrict token access per package

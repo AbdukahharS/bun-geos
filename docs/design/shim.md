@@ -1,8 +1,9 @@
 # Design: the C shim
 
-> Status: **load-bearing slice proven in the Phase 0 spike** (init/finish/context/
-> last_error/last_notice — see [spike results](../research/spike-results.md)); the rest of
-> this surface remains a design target. The shim is D4 in the
+> Status: **implemented** (0.1.0) — the full surface described here ships and is gated
+> (ASan/UBSan + Valgrind selftests, sync-checked export list). The load-bearing slice
+> (init/finish/context/last_error/last_notice) was proven in the Phase 0 spike — see
+> [spike results](../research/spike-results.md). The shim is D4 in the
 > [decision record](../decisions.md). It is the only C code in the repository and the
 > only place where `bun:ffi`'s limits are engineered around.
 >

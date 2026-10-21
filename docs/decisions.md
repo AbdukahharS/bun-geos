@@ -655,6 +655,59 @@ bytes, not prose. Cost: `toArrow` output is a breaking shape change
 
 ---
 
+## D30 — Versioning: 0.y.z until a defined 1.0 gate; RC is a release phase, never a status
+
+**Context.** Two instability sources stack: `bun:ffi` carries Bun's
+"experimental" label with Node-API as the blessed stable path (D1) — a
+label flip we neither control nor can schedule, possibly never — and the
+library's own surface is young (curve types are deliberately post-0.1 —
+tracked by the ROADMAP's 1.0 gate). The version scheme must communicate
+instability honestly, without inventing a semver dialect, and without
+gating releases on an external event.
+
+**Decision.**
+1. **0.y.z IS the experimental label** (semver major-0 semantics): a
+   release carrying a breaking change OR new API bumps `y` (renumbering
+   the exported op-id tables is breaking); fixes/perf/docs bump `z`.
+   Default npm ranges (`^0.1.0` resolves only `0.1.x`) already make
+   every breaking bump a deliberate opt-in — no extra machinery needed
+   for that protection.
+2. **The stability contract is the tested-Bun pin, never bun:ffi's
+   label.** Every release documents its tested Bun range (README) and
+   ships the `engines.bun` floor in the staged manifest (D26); the FFI
+   roundtrip/spike suite gates every Bun bump (testing.md).
+3. **`-rc.N` is a phase of one release, cut only for genuine burn-in
+   candidates** (a new Bun minor with FFI-adjacent changes, or a large
+   surface addition), published under the **`rc` dist-tag** — `latest`
+   NEVER points at a prerelease. A candidate promotes in place
+   (`0.2.0-rc.1` → `0.2.0`) once the gates pass. `scripts/release.ts`
+   enforces this mechanically: prerelease versions publish `--tag rc`,
+   and `--tag latest` for a prerelease is a hard error.
+4. **The 1.0.0 gate — four criteria, all measured, all ours** (tracked
+   as checkboxes in the ROADMAP):
+   1. the curve-types decision is made (in, or declared never); if
+      "in", it ships before 1.0.0;
+   2. the full gate suite (FFI roundtrip/spike, XML corpus,
+      ASan/Valgrind, install matrix, soak) green across TWO
+      consecutive Bun minors with zero FFI-semantics surprises;
+   3. no breaking change needed for three months of releases/real use;
+   4. the `latest` install matrix green (bun/npm/pnpm × the four
+      machine classes).
+
+   bun:ffi's label is explicitly NOT a criterion: 1.0.0 means "stable
+   on the tested Bun range", and the README keeps the Bun-only and
+   experimental-JIT caveats regardless.
+
+**Consequences.** Instability is read from the major-0 version and the
+per-release Bun pin — both machine-checkable — instead of a prose
+disclaimer. The `rc` channel buys burn-in without shrinking the
+`latest` install base (prereleases are excluded from ordinary range
+matching, so a permanent RC stream would otherwise split the testers).
+1.0.0 arrives when the project's own gates are green, not when — or if
+— Bun relabels `bun:ffi`.
+
+---
+
 ## Open design work (tracked, not yet decided in detail)
 
 1. ~~Worker ownership rules — `parallel()` chunking semantics, AbortSignal

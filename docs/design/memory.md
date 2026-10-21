@@ -1,7 +1,7 @@
 # Design: memory & ownership
 
-> Status: design target (post-spike). Implements D10; consumes the ownership rules from
-> [GEOS research §4](../research/geos.md).
+> Status: describes the **implemented system** (0.1.0). Implements D10; consumes the
+> ownership rules from [GEOS research §4](../research/geos.md).
 
 ## 1. The two heaps
 

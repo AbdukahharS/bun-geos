@@ -20,7 +20,7 @@
 
 **Lesson adopted:** the product is **the batch loop**, not syntax over per-object calls.
 Batch/vectorized APIs are first-class here from day one, not bolted on later (D9,
-[API surface](../design/api-surface.md)). Also adopted: Shapely 2's typed consistent
+[API surface](../archive/api-surface.md)). Also adopted: Shapely 2's typed consistent
 empties and immutability as defaults ([GEOS research §10](geos.md)).
 
 ## R — `sf`
