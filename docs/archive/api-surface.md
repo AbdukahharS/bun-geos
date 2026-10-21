@@ -1,4 +1,10 @@
-# Design: target API surface
+# Design: target API surface (archived)
+
+> **Archived October 2026, after 0.1.0** — the target this document
+> describes shipped in the 0.1.0 release. The documented surface is
+> [../reference/api.md](../reference/api.md) (freshness-gated by a
+> test); the only remaining gap (curve types) is tracked in D30 and
+> the ROADMAP's 1.0 gate.
 
 > Status: **design target, not a contract** (post-spike). The surface is fixed at the
 > GEOS 3.14 C API (D5) — no capability flags exist anywhere in this document. Method
@@ -59,11 +65,11 @@
 
 - All plural/batch forms accept `Geometry[]` **or** GeoArrow-style typed arrays and
   return typed arrays — never a JS loop over the singular form.
-- Coordinates in/out are flat `Float64Array` + offsets ([io](io.md)).
+- Coordinates in/out are flat `Float64Array` + offsets ([io](../design/io.md)).
 - Every operation accepts an optional trailing `options` object; all ops accept
-  `{ signal?: AbortSignal }` ([concurrency](concurrency.md)).
+  `{ signal?: AbortSignal }` ([concurrency](../design/concurrency.md)).
 - Disposables (`Geos`, `Geometry`, `Prepared`, `STRtree`, arenas) implement
-  `[Symbol.dispose]()` ([memory](memory.md)).
+  `[Symbol.dispose]()` ([memory](../design/memory.md)).
 
 ```ts
 class Geos implements Disposable {

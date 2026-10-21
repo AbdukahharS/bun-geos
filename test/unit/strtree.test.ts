@@ -1,5 +1,5 @@
 /**
- * STRtree (Phase 2, api-surface §Spatial index): query/nearest correctness
+ * STRtree (Phase 2, archived api-surface §Spatial index): query/nearest correctness
  * against brute force, id semantics, and the D16 liveness rules.
  */
 

@@ -1,9 +1,12 @@
 # Design: architecture
 
-> Status: design target; the load-bearing core (dlopen + flat-buffer roundtrip + shim error
-> path) is **proven in the Phase 0 spike** — see [spike results](../research/spike-results.md).
-> Companion docs: [shim](shim.md), [memory](memory.md), [concurrency](concurrency.md),
-> [io](io.md), [api surface](api-surface.md).
+> Status: describes the **implemented system** (0.1.0) — the original
+> load-bearing core (dlopen + flat-buffer roundtrip + shim error path)
+> was proven in the Phase 0 spike; see
+> [spike results](../research/spike-results.md). Companion docs:
+> [shim](shim.md), [memory](memory.md), [concurrency](concurrency.md),
+> [io](io.md); the API-surface target is archived at
+> [../archive/api-surface.md](../archive/api-surface.md).
 
 ## 1. Layer diagram
 
@@ -18,8 +21,8 @@ user code (TypeScript)
    ├── geometry.ts        Geometry wrapper (numeric ptr + owning context)
    ├── arena.ts           arena contexts · bulk destroy
    ├── io/                geojson.ts · wkb.ts · arrow.ts · wkt.ts  (adapters)
-   ├── index/             strtree.ts (id registry over GEOS STRtree)
-   └── parallel.ts        worker-pool batch helper
+   ├── spatial/           prepared.ts · strtree.ts (id registry over GEOS STRtree)
+   └── parallel/          pool.ts · protocol.ts · worker.ts (worker-pool batch helper)
         │  bun:ffi — numbers, Float64Array, one crossing per geometry/array
         ▼
 shim.so|dylib|dll        (~300 lines C: handlers, batch builders, strtree

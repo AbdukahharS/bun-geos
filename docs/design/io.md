@@ -1,6 +1,6 @@
 # Design: I/O layer
 
-> Status: design target (post-spike). Implements D9. Factual basis:
+> Status: describes the **implemented system** (0.1.0). Implements D9. Factual basis:
 > `GEOSCoordSeq_copyFromBuffer/copyToBuffer` take/produce interleaved `double` buffers
 > ([GEOS research §5](../research/geos.md)).
 
