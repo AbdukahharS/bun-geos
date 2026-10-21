@@ -67,6 +67,25 @@ export const GeoType = {
 } as const;
 export type GeoTypeId = (typeof GeoType)[keyof typeof GeoType];
 
+/**
+ * Curved geometry type ids (GEOS 3.13+ `GEOSGeomTypes` 8–12) — DECLARED
+ * NEVER for this library (D31). GEOS's curved types are I/O-and-measure
+ * only: predicates (RelateNG), overlays (OverlayNG), distance, and
+ * validity all reject them, so a curved geometry could never participate
+ * in this library's op surface — and the JS exchange formats (GeoJSON,
+ * GeoArrow) are linear-only. The I/O readers enforce the declaration at
+ * the boundary (io/curves.ts); this table exists for diagnostics only and
+ * is deliberately NOT folded into `GeoType`/`GeoTypeId` — no `Geometry`
+ * can ever carry one of these ids.
+ */
+export const CURVED_TYPE_NAMES: Readonly<Record<number, string>> = {
+  8: "CircularString",
+  9: "CompoundCurve",
+  10: "CurvePolygon",
+  11: "MultiCurve",
+  12: "MultiSurface",
+};
+
 export type CollectionKind =
   | "multipoint"
   | "multilinestring"
@@ -87,8 +106,9 @@ export function collectionTypeId(kind: CollectionKind): GeoTypeId {
   }
 }
 
-/** Geometry type id → WKT-style name (as GEOS reports it). */
-export function geoTypeName(id: GeoTypeId): string {
+/** Geometry type id → WKT-style name (as GEOS reports it). Accepts any id —
+ * unknown/curve ids get honest names instead of a narrowed type's silence. */
+export function geoTypeName(id: number): string {
   const names: Record<number, string> = {
     [GeoType.Point]: "Point",
     [GeoType.LineString]: "LineString",
@@ -99,7 +119,9 @@ export function geoTypeName(id: GeoTypeId): string {
     [GeoType.MultiPolygon]: "MultiPolygon",
     [GeoType.GeometryCollection]: "GeometryCollection",
   };
-  return names[id] ?? `Unknown(${id})`;
+  // The curved ids are unreachable for a held Geometry (readers reject them,
+  // D31) but name them anyway so diagnostics never print `Unknown(8)`.
+  return names[id] ?? CURVED_TYPE_NAMES[id] ?? `Unknown(${id})`;
 }
 
 /**

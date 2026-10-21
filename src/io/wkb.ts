@@ -12,6 +12,7 @@ import type { Geometry } from "../geometry.ts";
 import type { Geos } from "../geos.ts";
 import type { ByteOrder, GeomPtr, WkbWriterPtr } from "../types.ts";
 import { byteOrderToId } from "../types.ts";
+import { assertLinear } from "./curves.ts";
 export interface WKBOptions {
   /** Byte order. Default: native. Use "big" for stable goldens. */
   byteOrder?: ByteOrder;
@@ -27,7 +28,9 @@ export interface WKBOptions {
 export function fromWKB(geos: Geos, wkb: Uint8Array): Geometry {
   geos.assertOpen("fromWKB");
   const g = geos.native.geos.GEOSWKBReader_read_r(geos.ctx, geos.wkbReader(), wkb, wkb.length);
-  return geos.take("GEOSWKBReader_read_r", g as GeomPtr | null);
+  const geom = geos.take("GEOSWKBReader_read_r", g as GeomPtr | null);
+  assertLinear(geos, geom, "fromWKB"); // D31 — curved payloads never enter
+  return geom;
 }
 
 /** Options for the batch WKB read (io.md §4). */
@@ -77,7 +80,11 @@ export function fromWKBMany(
     out,
   );
   if (r !== 0) throw geos.fail("geos_shim_read_wkb_many");
-  return geos.takeMany("geos_shim_read_wkb_many", out, opts.arena ?? geos.currentArena());
+  const geoms = geos.takeMany("geos_shim_read_wkb_many", out, opts.arena ?? geos.currentArena());
+  // D31: one curved row rejects the whole batch (all-or-nothing, D22); the
+  // already-registered survivors stay arena-owned until disposal.
+  for (const g of geoms) assertLinear(geos, g, "fromWKBMany");
+  return geoms;
 }
 
 /** WKB bytes of a geometry — a fresh copy, safe to hold and transfer. */
