@@ -121,6 +121,10 @@ two clean Bun minors, a green install matrix — not on bun:ffi's label.
 
 ## Known limitations (all deliberate)
 
+- **Linear geometries only** ([D31](docs/decisions.md)) — curved types (`CIRCULARSTRING`,
+  `COMPOUNDCURVE`, `CURVEPOLYGON`, `MULTICURVE`, `MULTISURFACE`) are rejected at the reader
+  boundary: GEOS's own curved support is I/O-and-measure only, and the JS exchange formats
+  (GeoJSON, GeoArrow) are linear-only.
 - **Bun-only**; requires the JIT (`bun:ffi` has no JIT-less mode — the loader says so plainly).
 - **Bun is experimental** and so is this package; `bun:ffi` semantics are pinned per release
   and gated by the FFI roundtrip suite on every Bun bump.

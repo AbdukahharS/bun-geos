@@ -26,8 +26,12 @@ does not reopen it.
 > `rc` dist-tag and never `latest` (mechanically enforced by
 > `scripts/release.ts`).
 
-- [ ] **Curve types decided** (in, or declared never) — the one open
-      API-surface gap; if "in", shipped before 1.0.0.
+- [x] **Curve types decided** — declared **never** ([D31](decisions.md)):
+      GEOS's curved types are I/O-and-measure only (every predicate,
+      overlay, distance, and validity op rejects them) and the JS
+      exchange formats are linear-only, so the readers reject curved
+      payloads loudly at the boundary and the library is linear-only,
+      like JTS.
 - [ ] **Two consecutive Bun minors** pass the full gate suite (FFI
       roundtrip/spike, XML corpus, ASan/Valgrind, install matrix, soak)
       with zero FFI-semantics surprises.
