@@ -424,7 +424,7 @@ function assemble(geos: Geos, g: Geometry, outDim: number): GeoJSONGeometryObjec
     default:
       throw new GeosError(
         "toGeoJSON",
-        `unsupported geometry type id ${typeId} (curves are post-0.1)`,
+        `unsupported geometry type id ${typeId} (curved types are rejected at the readers — D31)`,
       );
   }
 }

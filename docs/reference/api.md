@@ -61,6 +61,13 @@ The GEOS version string (informational only, D5).
 
 ## I/O
 
+Linear geometries only (D31): the readers reject curved payloads
+(`CIRCULARSTRING`, `COMPOUNDCURVE`, `CURVEPOLYGON`, `MULTICURVE`,
+`MULTISURFACE` — including nested in a `GEOMETRYCOLLECTION`) with a
+`GeosError` naming the type; nesting deeper than 32 collection levels
+also throws (the shim's pathological-nesting guard). Batch reads are
+all-or-nothing.
+
 | op | notes |
 |----|-------|
 | `geos.fromWKT(wkt)` | parses via the pooled reader; errors carry the GEOS message |

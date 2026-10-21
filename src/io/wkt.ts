@@ -12,6 +12,7 @@ import { CString } from "bun:ffi";
 import type { Geometry } from "../geometry.ts";
 import type { Geos } from "../geos.ts";
 import type { GeomPtr, WktWriterPtr } from "../types.ts";
+import { assertLinear } from "./curves.ts";
 
 export interface WKTOptions {
   /** Max digits after the decimal point (writer path). */
@@ -28,7 +29,9 @@ export interface WKTOptions {
 export function fromWKT(geos: Geos, wkt: string): Geometry {
   geos.assertOpen("fromWKT");
   const g = geos.native.geos.GEOSWKTReader_read_r(geos.ctx, geos.wktReader(), wkt);
-  return geos.take("GEOSWKTReader_read_r", g as GeomPtr | null);
+  const geom = geos.take("GEOSWKTReader_read_r", g as GeomPtr | null);
+  assertLinear(geos, geom, "fromWKT"); // D31 — curved payloads never enter
+  return geom;
 }
 
 /** WKT of a geometry. Default: trimmed (`POINT (0 0)`, Shapely-2 style). */

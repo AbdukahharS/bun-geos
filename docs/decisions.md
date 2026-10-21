@@ -661,6 +661,7 @@ bytes, not prose. Cost: `toArrow` output is a breaking shape change
 "experimental" label with Node-API as the blessed stable path (D1) — a
 label flip we neither control nor can schedule, possibly never — and the
 library's own surface is young (curve types are deliberately post-0.1 —
+superseded: declared never by D31 —
 tracked by the ROADMAP's 1.0 gate). The version scheme must communicate
 instability honestly, without inventing a semver dialect, and without
 gating releases on an external event.
@@ -705,6 +706,61 @@ disclaimer. The `rc` channel buys burn-in without shrinking the
 matching, so a permanent RC stream would otherwise split the testers).
 1.0.0 arrives when the project's own gates are green, not when — or if
 — Bun relabels `bun:ffi`.
+
+---
+
+## D31 — Curved geometry types: declared never; the readers are the boundary
+
+**Context.** GEOS 3.13 added the ISO SQL/MM curved types
+(`CircularString`, `CompoundCurve`, `CurvePolygon`, `MultiCurve`,
+`MultiSurface`) with C API creation and WKB/WKT I/O (funded by QGIS
+stakeholders for desktop-GIS interop). Surveying the 3.14 sources shows
+that support is I/O-and-measure only: most operations reject curves via
+`ensureNoCurvedComponents` — RelateNG (every predicate, prepared or
+not), OverlayNGRobust (every overlay), DistanceOp, Hausdorff/Frechet,
+Centroid, boundary, line merge/polygonize, coverage, hulls, and
+GridIntersection — while IsValidOp/IsSimpleOp throw their own
+"Curved types not supported" errors. Either way, no predicate, overlay,
+distance, or validity op accepts a curved input.
+There is no public curve→linear conversion (PostGIS
+implements `ST_CurveToLine` itself; GEOS/JTS ship nothing). Meanwhile
+this library's exchange formats are linear-only: GeoJSON (RFC 7946)
+excludes curves, GeoArrow has no curved shapes, and the JS ecosystem
+(JSTS is a JTS port; turf) has no curve representation at all — JTS
+itself, the spec source for the whole op family, deliberately lacks
+curved geometries. Without a decision, the 3.13 readers let curved
+payloads INTO the library silently (GEOS parses them fine) as
+half-named objects — `Unknown(8)` type names, raw GEOS exceptions from
+every op.
+
+**Decision.**
+1. Curved types are **declared never**: this library is linear-only,
+   like JTS. No construction surface, no I/O acceptance, no partial
+   measures.
+2. The **readers are the boundary**: `fromWKB`/`fromWKT`/`fromWKBMany`
+   run `assertLinear` (io/curves.ts) on every parsed geometry —
+   recursing into `GEOMETRYCOLLECTION` children, whose linear id-7
+   shell would otherwise hide a curve from a top-level check — and
+   throw a `GeosError` naming the type and D31. Batch reads stay
+   all-or-nothing (D22): one curved row rejects the batch. The
+   recursion carries the shim's 32-level nesting guard, so a linear
+   collection nested deeper than that now also throws (it previously
+   parsed — documented here as a deliberate, if pathological, reader
+   contract).
+3. The curved ids (8–12) live in a diagnostics table
+   (`CURVED_TYPE_NAMES`) feeding `geoTypeName`, deliberately NOT
+   folded into `GeoType`/`GeoTypeId` — no `Geometry` can carry one, so
+   the discriminated unions stay closed over linear ids.
+
+**Consequences.** The 1.0 gate's curve criterion is closed with a
+contract instead of a roadmap question: linear-only, matching every
+format and op the library speaks. The guard costs one `GEOSGeomTypeId_r`
+crossing per read geometry (plus one per collection child); if the batch
+bench ever shows it, the check moves C-side into
+`geos_shim_read_wkb_many` — the JS contract would not change. Reopening
+this decision requires GEOS to ship a public curve→linear conversion AND
+real op support, or a concrete PostGIS-passthrough demand from a user —
+until then, "not supported" is the honest, loud answer.
 
 ---
 
