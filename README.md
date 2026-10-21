@@ -106,10 +106,18 @@ scans **32×** vs unprepared; STRtree queries **122×** vs a naive JS scan; WKB 
 | [Workers & parallelism](docs/guide/workers-and-parallelism.md) | thread rules, `geos.parallel`, cancellation |
 | [API reference](docs/reference/api.md) | every public export — signatures, disposal, errors |
 | [Symbol reference](docs/reference/symbols.md) | the JS ↔ `geos_c` mapping, generated from the source |
-| [`docs/decisions.md`](docs/decisions.md) | the decision record (D1–D28) — every architectural choice and why |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | phases, status, exit criteria |
-| [`docs/design/api-surface.md`](docs/design/api-surface.md) | the design target by module group |
+| [`docs/decisions.md`](docs/decisions.md) | the decision record (D1–D30) — every architectural choice and why |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | phase status & the 1.0 gate |
 | [`docs/operations/`](docs/operations/) | packaging & release, licensing, testing |
+
+## Versioning
+
+0.y.z until further notice — semver major-0 *is* the "experimental" label, and it is honest
+([D30](docs/decisions.md)): breaking changes and new API bump `y`, fixes bump `z`. Each
+release documents its tested Bun range; `engines.bun` floors it in the manifest.
+Prereleases (`-rc.N`, burn-in candidates only) publish under the `rc` dist-tag and never
+touch `latest`. 1.0.0 is gated on this project's own criteria — the curve-types decision,
+two clean Bun minors, a green install matrix — not on bun:ffi's label.
 
 ## Known limitations (all deliberate)
 
