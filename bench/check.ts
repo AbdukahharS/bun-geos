@@ -18,6 +18,12 @@
  *
  * Env: BENCH_FAIL_FACTOR / BENCH_WARN_FACTOR override the thresholds;
  * BENCH_REGRESSION_ENFORCE=1 enforces despite a machine mismatch.
+ *
+ * NOISE FLOOR: variants whose BASELINE value is under MIN_BASELINE_MS
+ * (default 10 ms) swing up to 2× between quiet-machine runs — at that scale
+ * scheduler/boost state dominates (measured: 4–8 ms rows flipped 1.4–2×
+ * across back-to-back runs). They are reported as `noisy (<10ms, advisory)`
+ * and never FAIL. BENCH_MIN_BASELINE_MS overrides the floor.
  */
 
 import { readFileSync, unlinkSync } from "node:fs";
@@ -43,6 +49,7 @@ interface BenchFile {
 
 const FAIL_FACTOR = Number(process.env.BENCH_FAIL_FACTOR ?? "1.5");
 const WARN_FACTOR = Number(process.env.BENCH_WARN_FACTOR ?? "1.25");
+const MIN_BASELINE_MS = Number(process.env.BENCH_MIN_BASELINE_MS ?? "10");
 const BASELINE_PATH = join(import.meta.dir, "results.json");
 
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as BenchFile;
@@ -91,6 +98,17 @@ for (const r of fresh.results) {
     const bv = b.values[variant];
     if (bv === undefined || bv <= 0) continue;
     const ratio = f / bv;
+    if (bv < MIN_BASELINE_MS) {
+      rows.push({
+        benchmark: r.name,
+        variant,
+        baseline: Number(bv.toFixed(1)),
+        fresh: Number(f.toFixed(1)),
+        ratio: Number(ratio.toFixed(2)),
+        verdict: `noisy (<${MIN_BASELINE_MS}ms, advisory)`,
+      });
+      continue;
+    }
     let verdict = "ok";
     if (ratio > FAIL_FACTOR) {
       verdict = `REGRESSION ${(ratio).toFixed(2)}×`;
