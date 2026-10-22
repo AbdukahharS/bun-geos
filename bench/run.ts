@@ -128,6 +128,10 @@ console.log("bun-geos benchmarks —", geos.version, `(${navigator.hardwareConcu
     for (const q of queries) hits += tree.query(q).length;
     checksum += hits;
   });
+  const treeAllMs = timeMs(() => {
+    const { ids } = tree.queryAll(queries);
+    checksum += ids.length;
+  });
   const fusedMs = timeMs(() => {
     let hits = 0;
     for (const q of queries) hits += tree.queryFilter(q, prep).length;
@@ -137,7 +141,12 @@ console.log("bun-geos benchmarks —", geos.version, `(${navigator.hardwareConcu
   results.push({
     name: `STRtree query (${M} items × ${Q} envelopes)`,
     unit: "ms",
-    values: { "naive JS envelope scan": naiveMs, strtree: treeMs, "strtree+fused filter": fusedMs },
+    values: {
+      "naive JS envelope scan": naiveMs,
+      strtree: treeMs,
+      "strtree queryAll": treeAllMs,
+      "strtree+fused filter": fusedMs,
+    },
     note: `${Math.max(1, Math.round(naiveMs / treeMs))}× vs naive scan`,
   });
 

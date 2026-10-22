@@ -80,6 +80,105 @@ describe("STRtree query", () => {
       using b = square(geos, 50, 50);
       expect(() => tree.insert(b)).toThrow(TypeError);
     }));
+
+  it("queryAll matches per-query results exactly (vs brute force, seeded)", () =>
+    withGeos((geos) => {
+      const rnd = mulberry32(0x11a1);
+      const geoms: Geometry[] = [];
+      const boxes: Array<[number, number, number, number]> = [];
+      for (let i = 0; i < 300; i++) {
+        const x = rnd() * 100;
+        const y = rnd() * 100;
+        const s = 0.5 + rnd() * 3;
+        geoms.push(square(geos, x, y, s));
+        boxes.push([x, y, x + s, y + s]);
+      }
+      const tree = geos.strtree(geoms);
+      try {
+        const queries: Geometry[] = [];
+        const expected: number[][] = [];
+        for (let q = 0; q < 40; q++) {
+          const qx = rnd() * 90;
+          const qy = rnd() * 90;
+          const qs = 2 + rnd() * 20;
+          queries.push(square(geos, qx, qy, qs));
+          const hits: number[] = [];
+          for (let i = 0; i < boxes.length; i++) {
+            const [x1, y1, x2, y2] = boxes[i]!;
+            if (x1 <= qx + qs && x2 >= qx && y1 <= qy + qs && y2 >= qy) hits.push(i);
+          }
+          expected.push(hits.sort((a, b) => a - b));
+        }
+        const { ids, offsets } = tree.queryAll(queries);
+        expect(offsets.length).toBe(queries.length);
+        let prev = 0;
+        for (let q = 0; q < queries.length; q++) {
+          const end = offsets[q]!;
+          expect([...ids.slice(prev, end)].sort((a, b) => a - b)).toEqual(expected[q]!);
+          expect(end).toBeGreaterThanOrEqual(prev);
+          prev = end;
+        }
+        expect(prev).toBe(ids.length);
+        for (const query of queries) query.dispose();
+      } finally {
+        tree.dispose();
+        for (const g of geoms) g.dispose();
+      }
+    }));
+
+  it("queryAll: empty tree and empty input shapes", () =>
+    withGeos((geos) => {
+      using tree = geos.strtree();
+      using q = square(geos, 0, 0);
+      const empty = tree.queryAll([q]);
+      expect(empty.ids.length).toBe(0);
+      expect(empty.offsets).toEqual(new Uint32Array([0]));
+      const none = tree.queryAll([]);
+      expect(none.ids.length).toBe(0);
+      expect(none.offsets.length).toBe(0);
+    }));
+
+  it("queryAll overflows the first capacity guess and re-requests right-sized", () =>
+    withGeos((geos) => {
+      // cap = items.size (200); FOUR envelopes each covering all 200 items
+      // → total ≈ 800 ≫ cap → the shim reports overflow and the JS side
+      // must re-request with the right-sized buffer. Pins the actual
+      // re-request path end to end.
+      const geoms: Geometry[] = [];
+      for (let i = 0; i < 200; i++) {
+        geoms.push(square(geos, i * 0.1, 0, 0.05));
+      }
+      using tree = geos.strtree(geoms);
+      const queries: Geometry[] = [
+        square(geos, -1, -1, 30),
+        square(geos, 5, -1, 30),
+        square(geos, 12, -1, 30),
+        square(geos, -1, -1, 40),
+      ];
+      const singles = queries.map((q) => [...tree.query(q)].sort((a, b) => a - b));
+      const totalSingle = singles.reduce((n, s) => n + s.length, 0);
+      expect(totalSingle).toBeGreaterThan(200); // the overflow precondition
+
+      const { ids, offsets } = tree.queryAll(queries);
+      expect(offsets.length).toBe(4);
+      expect(ids.length).toBe(totalSingle);
+      let prev = 0;
+      for (let q = 0; q < queries.length; q++) {
+        const end = offsets[q]!;
+        expect([...ids.slice(prev, end)].sort((a, b) => a - b)).toEqual(singles[q]!);
+        prev = end;
+      }
+      tree.dispose();
+      for (const g of geoms) g.dispose();
+      for (const q of queries) q.dispose();
+    }));
+
+  it("queryAll rejects foreign-context geometries", () =>
+    withGeos((geos) => {
+      using tree = geos.strtree([square(geos, 0, 0)]);
+      using foreign = withGeos((other) => square(other, 1, 1));
+      expect(() => tree.queryAll([foreign])).toThrow(TypeError);
+    }));
 });
 
 describe("STRtree nearest", () => {

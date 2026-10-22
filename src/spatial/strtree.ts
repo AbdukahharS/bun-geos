@@ -20,6 +20,7 @@
 import type { Pointer } from "bun:ffi";
 import type { Geometry } from "../geometry.ts";
 import type { Geos } from "../geos.ts";
+import { geomPtrArray } from "../ptrs.ts";
 import type { GeomPtr, StrTreePtr } from "../types.ts";
 import { PreparedPred } from "../types.ts";
 import type { Prepared } from "./prepared.ts";
@@ -143,6 +144,52 @@ export class STRtree implements Disposable {
       if (total < 0) throw this.geos.fail("geos_shim_strtree_query");
     }
     return total === out.length ? out : out.slice(0, total);
+  }
+
+  /**
+   * Batch twin of `query` (D18): N envelope queries in ONE shim crossing.
+   * Returns flat candidate ids plus CUMULATIVE offsets — query `i` owns
+   * `ids[offsets[i-1] .. offsets[i])` (slot `i` is empty when
+   * `offsets[i] === offsets[i-1]`). Candidates only — exact filtering is
+   * the caller's job. Overflow-safe: when the total exceeds the first
+   * guess the shim reports it and one right-sized re-request follows
+   * (same contract as `query`).
+   */
+  queryAll(envs: readonly Geometry[]): { ids: Int32Array; offsets: Uint32Array } {
+    this.#assertOpen("queryAll()");
+    for (const e of envs) e.requireSame(this.geos);
+    if (this.#items.size === 0 || envs.length === 0) {
+      return { ids: new Int32Array(0), offsets: new Uint32Array(envs.length) };
+    }
+    this.build();
+    const ptrs = geomPtrArray(this.geos, envs, "queryAll");
+    const shim = this.geos.native.shim;
+    // First-guess capacity: every query can in principle hit every item —
+    // `items.size` is the per-query maximum, not the total, so overflow is
+    // detected from the shim's returned total and one re-request follows.
+    let cap = this.#items.size;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const ids = new Int32Array(cap);
+      const offsets = new Uint32Array(envs.length);
+      const total = shim.geos_shim_strtree_query_all(
+        this.geos.shim,
+        this.#tree,
+        ptrs,
+        envs.length,
+        ids,
+        offsets,
+        cap,
+      );
+      if (total < 0) throw this.geos.fail("geos_shim_strtree_query_all");
+      if (total <= cap) {
+        return {
+          ids: total === cap ? ids : ids.slice(0, total),
+          offsets,
+        };
+      }
+      cap = total; // right-sized re-request (query itself never derefs items)
+    }
+    throw this.geos.fail("geos_shim_strtree_query_all"); // three overflows: pathological
   }
 
   /**

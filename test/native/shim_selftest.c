@@ -38,6 +38,8 @@ extern void *geos_shim_coverage_union(GeosShim *, void **, unsigned int);
 extern int geos_shim_prepared_pred_all(GeosShim *, const void *, int, void **, unsigned int, unsigned char *);
 extern int geos_shim_prepared_relate_pattern_all(GeosShim *, const void *, void **, unsigned int, const char *, unsigned char *);
 extern int geos_shim_strtree_query(GeosShim *, void *, const void *, int32_t *, unsigned int);
+extern int geos_shim_strtree_query_all(GeosShim *, void *, void **, unsigned int, int32_t *,
+                                       uint32_t *, unsigned int);
 extern void *geos_shim_strtree_bind_geoms(GeosShim *, void **, unsigned int);
 extern void geos_shim_strtree_table_free(void *);
 extern int geos_shim_strtree_nearest(GeosShim *, void *, const void *, void **);
@@ -366,6 +368,35 @@ int main(void) {
     void *farQuery = mk_line(s, (double[4]){49.4, 49.4, 49.4, 49.4}, 2);
     int near2 = geos_shim_strtree_nearest(s, tree, farQuery, table);
     CHECK(near2 == 49, "nearest picks id 49 for (49.4, 49.4)");
+    /* 19b. batch twin (D18): 3 envelopes in ONE crossing — flat ids +
+     * cumulative offsets. Expected blocks: [9..15] (7), [49], [0]. */
+    {
+      void *qB = mk_line(s, (double[4]){49.4, 49.4, 49.4, 49.4}, 2);
+      void *qC = mk_line(s, (double[4]){-0.5, 0, 0.5, 0}, 2);
+      void *envs3[3] = {query, qB, qC};
+      int32_t ids3[64] = {0};
+      uint32_t offs3[3] = {0};
+      int total3 = geos_shim_strtree_query_all(s, tree, envs3, 3, ids3, offs3, 64);
+      CHECK(total3 == 9, "query_all total = 7 + 1 + 1");
+      CHECK(offs3[0] == 7 && offs3[1] == 8 && offs3[2] == 9, "query_all offsets are cumulative");
+      CHECK(ids3[0] >= 9 && ids3[6] <= 15, "query_all block 0 is the 9..15 range");
+      CHECK(ids3[7] == 49 && ids3[8] == 0, "query_all blocks 1..2 decode (49, then 0)");
+      /* capacity overflow: ids beyond maxIds are counted, not written;
+       * offsets stay the TRUE cumulative totals (the JS side ignores a
+       * failed-capacity pass and re-requests right-sized). */
+      int32_t ids4[4] = {0};
+      uint32_t offs4[3] = {0};
+      int total4 = geos_shim_strtree_query_all(s, tree, envs3, 3, ids4, offs4, 4);
+      CHECK(total4 == 9, "query_all overflow keeps counting");
+      CHECK(offs4[0] == 7 && offs4[1] == 8 && offs4[2] == 9, "overflow offsets stay true totals");
+      CHECK(ids4[0] == 9 && ids4[3] == 12, "overflow writes prefix ids only");
+      /* invalid args */
+      CHECK(geos_shim_strtree_query_all(s, tree, NULL, 3, ids3, offs3, 64) == -1 && has_error(s),
+            "query_all NULL envs is an error");
+      geos_shim_last_error(s);
+      GEOSGeom_destroy_r(ctx, qB);
+      GEOSGeom_destroy_r(ctx, qC);
+    }
     GEOSGeom_destroy_r(ctx, farQuery);
     /* THE NULL-OVERLOAD PIN (audited blocker): query nearest to ITEM 0 —
      * the correct answer is id 0, which as a raw item would be NULL/-1. */
