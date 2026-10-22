@@ -1,6 +1,6 @@
 # Roadmap
 
-> Status: **phases 0–5 COMPLETE — 0.1.0 on npm** (October 2026). The
+> Status: **phases 0–5 COMPLETE — 0.2.0 on npm** (October 2026). The
 > live plan is the [1.0 gate](#the-10-gate-post-phase-5) below (D30);
 > the full phase prose is archived in
 > [archive/roadmap-phase-plan.md](archive/roadmap-phase-plan.md).

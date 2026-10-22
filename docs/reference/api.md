@@ -1,6 +1,6 @@
 # API reference
 
-> Covers every public export of `@shzd/bun-geos` (0.1.0). Design rationale
+> Covers every public export of `@shzd/bun-geos` (0.2.0). Design rationale
 > lives in the [decision record](../decisions.md) (D-numbers) and the
 > archived [api-surface](../archive/api-surface.md) target; the JS ↔ `geos_c` symbol mapping
 > is [symbols.md](./symbols.md). A freshness test

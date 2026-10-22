@@ -4,8 +4,53 @@ All notable changes to `@shzd/bun-geos` are documented here. The library's GEOS 
 strict 3.14 (D5); GEOS upgrades ship as releases of this package, never as user-visible
 version gating.
 
-Format: Keep a Changelog-ish; semver-ish (0.0.x while the release pipeline hardens; 0.1.0 is
-the Phase-5 hardened release).
+Format: Keep a Changelog-ish; semver-ish 0.y.z until the 1.0 gate ([D30](docs/decisions.md)):
+a release carrying a breaking change OR new API bumps `y`; fixes/perf/docs bump `z`.
+
+## 0.2.0 — the linear-only boundary + the cross-library benchmark suite
+
+The first post-Phase-5 release: one breaking change and one new API (a `y` bump per D30).
+The library is **declared linear-only** (D31) and the readers now enforce that at the
+boundary; the benchmark story gains an honest cross-library comparison.
+
+**Added:**
+
+- `STRtree.queryAll` — N envelope queries in ONE shim crossing: flat candidate ids plus
+  cumulative u32 offsets (D18 contract), counting overflow beyond capacity with a
+  right-sized re-request. The main-suite STRtree row gains the variant (5.1 → 3.7 ms at
+  100k×1k); selftest-pinned (scenario 19b: offsets, overflow clamping, invalid args).
+- The cross-library benchmark suite: one shared scenario catalog (seeded coordinate-level
+  twins), in-process competitor adapters (geos-wasm, JSTS, turf, polygon-clipping, rbush,
+  flatbush, wkx) plus Shapely 2 and a direct GEOS C++ subprocess baseline, an
+  answer-fingerprint column, and a documented ±10% noise band. 44/45 cross-engine answer
+  fingerprints agree (the one difference is turf's geodesic buffer, by design). Competitor
+  engines are optional devDependencies behind `bench:competitors:setup`; the methodology
+  is documented in testing.md §4.
+
+**Changed:**
+
+- **BREAKING** — `fromWKB`/`fromWKT`/`fromWKBMany` now throw `GeosError` on curved
+  payloads (the GEOS 3.13 ISO SQL/MM types, ids 8–12) that previously parsed into a
+  degraded object (`Unknown(8)` type names, raw GEOS exceptions from every op). GEOS's
+  curve support is I/O-and-measure only — every predicate, overlay, distance, and
+  validity op rejects curved inputs — and the JS exchange formats (GeoJSON RFC 7946,
+  GeoArrow) are linear-only, so the readers reject curves loudly at the boundary (D31).
+  The check recurses into GEOMETRYCOLLECTION children whose linear id-7 shell would hide
+  a curve (32-level guard); `fromWKBMany` stays all-or-nothing (D22); the parallel
+  pool's worker ingest shares the guarded readers.
+- Arena-owned batch outputs skip the redundant per-geometry finalizer registration —
+  the arena is the backstop (D10 refinement); context-owned geometries keep the full
+  net. Measured: `fromWKBMany` 20k 16.9 → 10.1 ms; point-loop 17.2 → 7.6 ms.
+
+**Docs & tooling:**
+
+- D30 (the versioning convention and the measured 1.0 gate) and D31 (curved types
+  declared never) recorded; the phase plan archived to `docs/archive/`, the ROADMAP
+  slimmed to the 1.0 gate; the user-guides draft and the Cirth docs-site prepare step.
+- `bench:check` treats sub-10ms baseline rows as advisory (scheduler and boost state
+  dominate at that scale); committed baselines refreshed (schema-2 internal + schema-3
+  competitor comparison, 10 engines, 56 records).
+- Release tooling: the registry-resolution verify retries extended for CDN visibility lag.
 
 ## 0.1.0 — Phase 5 (hardening & polish)
 
