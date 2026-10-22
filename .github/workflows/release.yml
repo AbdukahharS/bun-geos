@@ -276,7 +276,10 @@ jobs:
     name: publish ${{ github.ref_name }}
     needs: [build-linux, build-musl, build-darwin, build-win32]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # 45 min, not 30: the verify retry schedule holds ~13 min of CDN-lag
+    # headroom PER straggler (v0.2.0's main package burned the old ~4 min
+    # budget); two stragglers + setup must not kill a healthy publish.
+    timeout-minutes: 45
     environment: release
     permissions:
       contents: write # GitHub release notes

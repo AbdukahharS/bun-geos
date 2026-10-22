@@ -232,7 +232,18 @@ documents repo-side fixes that ship with 0.1.0); the registry's `latest` was 0.0
    failing the post-publish resolution check — while the package itself was fine and
    live minutes later. The pipeline is idempotent by design: a rerun of the failed job
    (all packages skip, verify passes, release notes warn-and-continue) finished green in
-   24 s. If this recurs, extend the retry schedule before touching anything else. Constraints verified against the npm docs (Oct 2026):
+   24 s. If this recurs, extend the retry schedule before touching anything else.
+
+**v0.2.0 (2026-10-22), one lesson:** the same lag class recurred, longer: the main
+package was still `npm view`-invisible ~230 s after its successful publish (the full
+post-v0.1.0 budget) and resolved minutes later — all 8 packages were live, the GitHub
+release existed; only the verify threw, and its failure made the `workflow_run`
+install matrix skip. The schedule now waits up to ~770 s (and the publish job's
+timeout grew to 45 min for a two-straggler worst case). A verify failure with every
+package already published needs NO release re-run: confirm `npm view`, dispatch
+install-matrix manually, done.
+
+Constraints verified against the npm docs (Oct 2026):
 
 - Unvalidated configs expire after **2 days**; the first OIDC publish binds them.
 - Configs are immutable — renaming `release.yml` means deleting + recreating all 8.
