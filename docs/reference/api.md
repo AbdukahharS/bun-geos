@@ -235,6 +235,8 @@ const tree = geos.strtree(geoms?, nodeCapacity = 10);
 tree.insert(g): number;   // returns the id (input order)
 tree.build(): void;       // frozen after build (D16: the id table binds here)
 tree.query(env): Int32Array;      // candidate ids, one crossing
+tree.queryAll(envs): { ids: Int32Array; offsets: Uint32Array };  // N queries, one crossing;
+                                 // query i owns ids[offsets[i-1] .. offsets[i])
 tree.queryFilter(env, prep, pred?): Int32Array;  // fused query+prepared filter
 tree.nearest(g): number;          // -1 when the tree is empty
 tree.dispose();
