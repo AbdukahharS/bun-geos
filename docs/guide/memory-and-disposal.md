@@ -59,6 +59,22 @@ wrapper. It is a **leak net, not a strategy**: collection timing is unspecified,
 teardown orphans are reported, not freed (FFI calls during exit are unsafe). If you ever see
 `finalizerReaps` move, fix the disposal bug — don't rely on it.
 
+**Arena-owned geometries skip the registry.** When an output is born inside an explicit
+arena, the arena's bulk `destroy_many` *is* the backstop, so the per-geometry registry
+registration is redundant work and is skipped (a measurable ~40% of batch-output
+wrapping). Semantics per flavour:
+
+- dispose individually → still works (the registry-unregister call is a documented no-op
+  for an unregistered token);
+- drop the wrapper undisposed → memory is held until arena exit instead of the wrapper's
+  collection — the arena lifetime model, unchanged for the caller. (Sub-case: if the
+  geometry was pinned *after* birth, pinning already relinquished arena ownership, so the
+  hold extends to **context** dispose — still bounded, still safe in `using`-style usage);
+- stats → unaffected: `#live` bookkeeping and arena teardown accounting are identical
+  (the D24 soak asserts the return-to-baseline invariant with the fast path active).
+
+Context-owned geometries (no arena) keep the full registry net.
+
 ## Pitfall checklist (each guarded by a test)
 
 | Pitfall | What happens instead |

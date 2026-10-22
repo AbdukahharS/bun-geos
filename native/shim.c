@@ -866,6 +866,36 @@ int geos_shim_strtree_query(GeosShim *shim, GEOSSTRtree *tree, const GEOSGeometr
 }
 
 /*
+ * Batch twin (D18): one crossing for N envelope queries. Candidate ids are
+ * appended flat into `outIds`; `outOffsets[i]` records the CUMULATIVE id
+ * count through query i (query i owns ids [offsets[i-1], offsets[i])). Each
+ * query's candidates are exactly `query()`'s (same callback, same tree
+ * state). Returns the TOTAL candidate count — which may exceed maxIds (ids
+ * beyond the capacity are counted but not written; the JS side then
+ * re-requests with a right-sized buffer, the strtree_query contract) — or
+ * -1 on invalid arguments.
+ */
+int geos_shim_strtree_query_all(GeosShim *shim, GEOSSTRtree *tree, GEOSGeometry **envs,
+                                unsigned int n, int32_t *outIds, uint32_t *outOffsets,
+                                unsigned int maxIds) {
+  if (!shim || !tree || (!envs && n > 0) || (!outIds && maxIds > 0) || !outOffsets) {
+    shim_set_error("strtree_query_all: invalid arguments (shim=%p tree=%p envs=%p n=%u ids=%p "
+                   "offsets=%p maxIds=%u)",
+                   (void *)shim, (void *)tree, (void *)envs, n, (void *)outIds,
+                   (void *)outOffsets, maxIds);
+    return -1;
+  }
+  unsigned int total = 0;
+  for (unsigned int i = 0; i < n; i++) {
+    QueryCtx q = {outIds + total, (total < maxIds) ? (maxIds - total) : 0, 0};
+    GEOSSTRtree_query_r(shim->ctx, tree, envs[i], shim_query_cb, &q);
+    total += q.count;
+    outOffsets[i] = total;
+  }
+  return (int)total;
+}
+
+/*
  * id -> geometry table for `nearest`. The JS side binds the CURRENT inserted
  * geometries once at build() time; the shim owns the copy (free with
  * strtree_table_free at tree dispose).

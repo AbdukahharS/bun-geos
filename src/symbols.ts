@@ -57,6 +57,10 @@ export const SHIM_TABLE = {
   // nearest_generic with a C distance callback over the bound id→geom table
   // (D16 — the plain GEOSSTRtree_nearest derefs items as geometry pointers).
   geos_shim_strtree_query: { args: ["ptr", "ptr", "ptr", "ptr", "u32"], returns: "i32" },
+  geos_shim_strtree_query_all: {
+    args: ["ptr", "ptr", "ptr", "u32", "ptr", "ptr", "u32"],
+    returns: "i32",
+  },
   geos_shim_strtree_bind_geoms: { args: ["ptr", "ptr", "u32"], returns: "ptr" },
   geos_shim_strtree_table_free: { args: ["ptr"], returns: "void" },
   geos_shim_strtree_nearest: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },

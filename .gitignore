@@ -11,6 +11,11 @@ node_modules
 # phase 4: staged publish trees (scripts/package-*.ts) + per-run .npmrc
 /packages
 
+# competitor benchmark suite: shapely venv, canonical workload files, cpp baseline binary
+/bench/competitors/.venv
+/bench/competitors/.workload
+/bench/competitors/cpp/baseline
+
 # output
 out
 dist

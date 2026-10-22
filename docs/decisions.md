@@ -160,6 +160,16 @@ JS wrapper objects are tiny. Finalizers are also fragile during teardown.
 FinalizationRegistry exists solely to reclaim leaked geometries, never relied upon in normal
 operation. Per-context C-heap accounting makes the invisible heap visible.
 
+**Refinement (2026-10-22).** For geometries born inside an explicit arena, the arena's bulk
+`destroy_many` *is* the backstop, so the per-geometry FinalizationRegistry registration is
+skipped — it measured ~40% of batch-output wrapping (`take`), and the arena already
+guarantees the free. Semantics: individual dispose still works (unregister is a no-op for
+an unregistered token; destroy validates against `#live`, never the registry); an
+undisposed arena wrapper holds its memory until arena exit (the arena lifetime model);
+stats bookkeeping (`#live`, arena teardown accounting) is unchanged, and the D24 soak's
+return-to-baseline invariant is asserted with the fast path active. Context-owned
+geometries keep the full registry net.
+
 ## D11 — Workers with per-worker contexts; preload on main thread; no cross-worker geometry sharing
 
 **Context.** GEOS context state is thread-local (D3). Concurrent `dlopen` from freshly
@@ -518,6 +528,23 @@ when not installed; Shapely 2 stays a conceptual baseline. The parallel-pool
 suite runs as its own process (`bench/parallel.ts`) — isolation is both the
 D23 engine-flake workaround and better methodology. Positioning rule
 unchanged: robust overlays, repair, indexed/batched workloads only.
+
+**Extension (2026-10-21) — the full cross-library suite.** The competitor
+side grew from a stub to the full matrix: geos-wasm, JSTS, turf,
+polygon-clipping, rbush, flatbush, wkx (optional devDependencies, dynamic
+imports — absent packages typecheck and degrade to "skipped"), Shapely 2
+(real baseline now, in a gitignored venv via `bench:competitors:setup`), and
+a GEOS C++ direct baseline (compiled on demand against the dev GEOS install
+— the zero-boundary reference that isolates what each boundary costs).
+Schema v3 (`bench/competitors/results.json`): every engine emits one
+engine-tagged record per scenario+size with best-of-N wall ms, repeats,
+throughput, and an answer fingerprint (counts exact, areas 1e-9 relative)
+accumulated INSIDE the timed region — the honesty anchor that a fast engine
+didn't do less work. One seeded workload source (gen.ts coordinate twins);
+subprocess engines read canonical .workload files materialized from it.
+bun-geos runs in-process as the reference column; the internal suite
+(schema 2) and `bench:check` are untouched. Engine ceilings (pure-JS
+overlay cap, turf's fold-union cap) are explicit ladders, never silent.
 
 ---
 

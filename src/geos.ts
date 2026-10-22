@@ -410,7 +410,9 @@ export class Geos implements Disposable {
   /**
    * @internal — THE factory for owned geometries. Null (GEOS failure) throws
    * `GeosError(op)` with the captured message; otherwise registers the
-   * pointer (stats, innermost arena, finalization backstop) and wraps it.
+   * pointer (stats, innermost arena) and wraps it. The finalization backstop
+   * applies to CONTEXT-owned geometries only — arena-owned outputs rely on
+   * the arena's bulk destroy instead (D10 refinement).
    */
   take(
     op: string,
@@ -424,9 +426,18 @@ export class Geos implements Disposable {
     this.#live.set(ptr, { bytes, token, arena });
     this.#peak = Math.max(this.#peak, this.#live.size);
     const geom = new Geometry(this, ptr, { owned: true, token, arena });
-    // Backstop only (D10): fires if the wrapper is collected undisposed.
-    this.#registry.register(geom, { geos: this, ptr, arena, token }, token);
-    if (arena) {
+    if (arena === null) {
+      // No arena backstop — the finalization net IS the leak guard (D10).
+      this.#registry.register(geom, { geos: this, ptr, arena, token }, token);
+    } else {
+      // Arena-owned: the arena's bulk destroy_many is the backstop, so the
+      // per-geometry FinalizationRegistry registration is redundant work and
+      // is skipped (batch hot path — measured ~40% of take()). Individual
+      // dispose() still works: unregisterFinalizer is a documented no-op for
+      // an unregistered token, and destroyOwned validates against #live,
+      // never the registry. An undisposed arena wrapper holds its memory
+      // until arena exit instead of its own collection — the arena
+      // lifetime model, unchanged for the caller.
       arena.add(ptr);
       // O(arena depth) — depth is small; only paid for arena-born geometries.
       let under = 0;
@@ -460,9 +471,9 @@ export class Geos implements Disposable {
   /**
    * @internal — wrap n owned pointers returned by a batch shim call
    * (Phase 3, D22). Each pointer is registered exactly as `take` would
-   * (stats, arena, finalization backstop); the per-wrapper JS cost is the
-   * irreducible part of a batch op — the C loop has already collapsed the
-   * FFI crossings.
+   * (stats, arena; the finalization backstop only for context-owned
+   * outputs); the per-wrapper JS cost is the irreducible part of a batch
+   * op — the C loop has already collapsed the FFI crossings.
    */
   takeMany(
     op: string,

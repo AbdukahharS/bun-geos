@@ -1,0 +1,1020 @@
+{
+  "when": "2026-10-22T08:01:08.571Z",
+  "schema": 3,
+  "bun": "1.4.3",
+  "cpu": "AMD Ryzen 7 260 w/ Radeon 780M Graphics",
+  "hwThreads": 16,
+  "commit": "a1fffdc",
+  "engines": [
+    {
+      "engine": "bun-geos",
+      "version": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "status": "ran"
+    },
+    {
+      "engine": "geos-wasm",
+      "version": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "status": "ran"
+    },
+    {
+      "engine": "jsts",
+      "version": "2.12.1",
+      "boundary": "pure-js",
+      "status": "ran"
+    },
+    {
+      "engine": "turf",
+      "version": "@turf/turf 7.4.0",
+      "boundary": "pure-js",
+      "status": "ran"
+    },
+    {
+      "engine": "polygon-clipping",
+      "version": "polygon-clipping 0.15.7",
+      "boundary": "pure-js",
+      "status": "ran"
+    },
+    {
+      "engine": "rbush",
+      "version": "rbush 4.0.1",
+      "boundary": "pure-js",
+      "status": "ran"
+    },
+    {
+      "engine": "flatbush",
+      "version": "flatbush 4.6.2",
+      "boundary": "pure-js",
+      "status": "ran"
+    },
+    {
+      "engine": "wkx",
+      "version": "wkx 0.5.0",
+      "boundary": "pure-js",
+      "status": "ran"
+    },
+    {
+      "engine": "shapely",
+      "version": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "status": "ran"
+    },
+    {
+      "engine": "geos-cpp",
+      "version": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "status": "ran"
+    }
+  ],
+  "results": [
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "overlay",
+      "size": 1000,
+      "variants": {
+        "singular": 19.72133199999996,
+        "batch": 19.778487999999925
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 794,
+        "areaSum": 17.822825154043194
+      },
+      "note": "reference column — native FFI to GEOS 3.14"
+    },
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "overlay",
+      "size": 10000,
+      "variants": {
+        "singular": 197.83513700000003,
+        "batch": 194.65203500000007
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 8020,
+        "areaSum": 180.0805941862378
+      },
+      "note": "reference column — native FFI to GEOS 3.14"
+    },
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "overlay",
+      "size": 100000,
+      "variants": {
+        "singular": 1381.7110650000004,
+        "batch": 1347.1963130000004
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "count": 49765,
+        "areaSum": 1115.0635198382047
+      },
+      "note": "reference column — native FFI to GEOS 3.14"
+    },
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "union",
+      "size": 961,
+      "variants": {
+        "coverage-safe": 4.179007999999158,
+        "coverage-raw": 0.4844780000003084,
+        "unary": 9.451974999999948,
+        "auto": 4.061847999999372
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 1,
+        "areaSum": 961
+      },
+      "note": "coverage-safe = validate+union (GEOSCoverageIsValid first — CoverageUnion is silently wrong on non-coverages); coverage-raw = union only, the parity row vs Shapely/cpp"
+    },
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "prepared-scan",
+      "size": 10000,
+      "variants": {
+        "unprepared": 18.109301000000414,
+        "prepared": 0.6601159999991069,
+        "prepared+batch": 0.7846399999998539
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 9817
+      },
+      "note": "reference column — native FFI to GEOS 3.14"
+    },
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "prepared-scan",
+      "size": 100000,
+      "variants": {
+        "unprepared": 182.04908000000069,
+        "prepared": 5.839237000000139,
+        "prepared+batch": 7.9078130000016245
+      },
+      "repeats": 1,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 98145
+      },
+      "note": "reference column — native FFI to GEOS 3.14"
+    },
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "strtree",
+      "size": 100000,
+      "variants": {
+        "build": 31.517385000001013,
+        "query": 3.746817999999621,
+        "query-batch": 3.557804000000033,
+        "query+fused": 21.187745999999606
+      },
+      "repeats": 5,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 270664
+      },
+      "note": "reference column — native FFI to GEOS 3.14"
+    },
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "ingest",
+      "size": 20000,
+      "variants": {
+        "wkt": 45.472875999999815,
+        "geojson": 34.5078969999995,
+        "wkb": 10.960570999999618,
+        "wkb-batch": 10.912760999999591
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "count": 20000,
+        "areaSum": null
+      },
+      "note": "reference column — native FFI to GEOS 3.14"
+    },
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "makevalid",
+      "size": 1000,
+      "variants": {
+        "makevalid": 38.05600299999969
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 1000,
+        "areaSum": 2000
+      },
+      "note": "reference column — native FFI to GEOS 3.14"
+    },
+    {
+      "engine": "bun-geos",
+      "engineVersion": "GEOS 3.14.1-CAPI-1.20.5 / bun-geos 0.1.0",
+      "boundary": "native-ffi",
+      "scenario": "buffer",
+      "size": 100,
+      "variants": {
+        "buffer": 14.600468000000546
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 100,
+        "areaSum": 853524.2002482403
+      },
+      "note": "reference column — native FFI to GEOS 3.14"
+    },
+    {
+      "engine": "geos-wasm",
+      "engineVersion": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "scenario": "overlay",
+      "size": 1000,
+      "variants": {
+        "singular": 66.9082870000002
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 794,
+        "areaSum": 17.822825154043194
+      },
+      "note": "GEOS 3.13 via Emscripten — raw C API, manual heap plumbing"
+    },
+    {
+      "engine": "geos-wasm",
+      "engineVersion": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "scenario": "overlay",
+      "size": 10000,
+      "variants": {
+        "singular": 623.3280379999997
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 8020,
+        "areaSum": 180.0805941862378
+      },
+      "note": "GEOS 3.13 via Emscripten — raw C API, manual heap plumbing"
+    },
+    {
+      "engine": "geos-wasm",
+      "engineVersion": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "scenario": "overlay",
+      "size": 100000,
+      "variants": {
+        "singular": 3670.5284680000004
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "count": 49765,
+        "areaSum": 1115.0635198382047
+      },
+      "note": "GEOS 3.13 via Emscripten — raw C API, manual heap plumbing"
+    },
+    {
+      "engine": "geos-wasm",
+      "engineVersion": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "scenario": "union",
+      "size": 961,
+      "variants": {
+        "unary": 22.9032090000037,
+        "coverage-raw": 1.3541970000005676
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 1,
+        "areaSum": 961
+      },
+      "note": "coverage-raw is union-only (no validity pre-check); includes per-repeat clone + collection build (C-API input contract)"
+    },
+    {
+      "engine": "geos-wasm",
+      "engineVersion": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "scenario": "prepared-scan",
+      "size": 10000,
+      "variants": {
+        "unprepared": 30.715931999999157,
+        "prepared": 1.437513000004401
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 9817
+      },
+      "note": "GEOS 3.13 via Emscripten — raw C API, manual heap plumbing"
+    },
+    {
+      "engine": "geos-wasm",
+      "engineVersion": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "scenario": "prepared-scan",
+      "size": 100000,
+      "variants": {
+        "unprepared": 309.6838609999977,
+        "prepared": 15.144114999995509
+      },
+      "repeats": 1,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 98145
+      },
+      "note": "GEOS 3.13 via Emscripten — raw C API, manual heap plumbing"
+    },
+    {
+      "engine": "geos-wasm",
+      "engineVersion": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "scenario": "ingest",
+      "size": 20000,
+      "variants": {
+        "wkt": 166.59746399999858,
+        "wkb": 19.38456700000097
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "count": 20000,
+        "areaSum": null
+      },
+      "note": "GEOS 3.13 via Emscripten — raw C API, manual heap plumbing"
+    },
+    {
+      "engine": "geos-wasm",
+      "engineVersion": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "scenario": "makevalid",
+      "size": 1000,
+      "variants": {
+        "makevalid": 96.47161400000186
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 1000,
+        "areaSum": 2000
+      },
+      "note": "GEOS 3.13 via Emscripten — raw C API, manual heap plumbing"
+    },
+    {
+      "engine": "geos-wasm",
+      "engineVersion": "geos-wasm / 3.13.0-CAPI-1.19.0",
+      "boundary": "wasm",
+      "scenario": "buffer",
+      "size": 100,
+      "variants": {
+        "buffer": 18.53143000000273
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 100,
+        "areaSum": 853524.2002482403
+      },
+      "note": "GEOS 3.13 via Emscripten — raw C API, manual heap plumbing"
+    },
+    {
+      "engine": "jsts",
+      "engineVersion": "2.12.1",
+      "boundary": "pure-js",
+      "scenario": "overlay",
+      "size": 1000,
+      "variants": {
+        "singular": 47.641373999998905
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 794,
+        "areaSum": 17.822825154043194
+      },
+      "note": "JTS port in pure JS — the strongest JS-native engine"
+    },
+    {
+      "engine": "jsts",
+      "engineVersion": "2.12.1",
+      "boundary": "pure-js",
+      "scenario": "overlay",
+      "size": 10000,
+      "variants": {
+        "singular": 340.90476599999965
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 8020,
+        "areaSum": 180.0805941862378
+      },
+      "note": "JTS port in pure JS — the strongest JS-native engine"
+    },
+    {
+      "engine": "jsts",
+      "engineVersion": "2.12.1",
+      "boundary": "pure-js",
+      "scenario": "union",
+      "size": 961,
+      "variants": {
+        "unary": 60.16150399999606
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 1,
+        "areaSum": 961
+      },
+      "note": "Geometry.union() on a prebuilt MULTIPOLYGON (no coverage strategy in JSTS)"
+    },
+    {
+      "engine": "jsts",
+      "engineVersion": "2.12.1",
+      "boundary": "pure-js",
+      "scenario": "strtree",
+      "size": 100000,
+      "variants": {
+        "build": 24.32833799999935,
+        "query": 7.66750100000354
+      },
+      "repeats": 5,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 270664
+      },
+      "note": "JTS port in pure JS — the strongest JS-native engine"
+    },
+    {
+      "engine": "jsts",
+      "engineVersion": "2.12.1",
+      "boundary": "pure-js",
+      "scenario": "ingest",
+      "size": 20000,
+      "variants": {
+        "wkt": 55.08424400000513
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "count": 20000,
+        "areaSum": null
+      },
+      "note": "the jsts npm bundle ships no WKB codecs — WKT ingest only"
+    },
+    {
+      "engine": "jsts",
+      "engineVersion": "2.12.1",
+      "boundary": "pure-js",
+      "scenario": "buffer",
+      "size": 100,
+      "variants": {
+        "buffer": 17.93700600000011
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 100,
+        "areaSum": 853524.2002482403
+      },
+      "note": "JTS port in pure JS — the strongest JS-native engine"
+    },
+    {
+      "engine": "turf",
+      "engineVersion": "@turf/turf 7.4.0",
+      "boundary": "pure-js",
+      "scenario": "overlay",
+      "size": 1000,
+      "variants": {
+        "singular": 3862.819298999995
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 794,
+        "areaSum": 17.822825154043304
+      },
+      "note": "web-mapping algorithm ports — GeoJSON-native, planar CRS not enforced"
+    },
+    {
+      "engine": "turf",
+      "engineVersion": "@turf/turf 7.4.0",
+      "boundary": "pure-js",
+      "scenario": "overlay",
+      "size": 10000,
+      "variants": {
+        "singular": 44032.878958999994
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 8020,
+        "areaSum": 180.0805941862385
+      },
+      "note": "web-mapping algorithm ports — GeoJSON-native, planar CRS not enforced"
+    },
+    {
+      "engine": "turf",
+      "engineVersion": "@turf/turf 7.4.0",
+      "boundary": "pure-js",
+      "scenario": "union",
+      "size": 100,
+      "variants": {
+        "unary": 15.900032000005012
+      },
+      "repeats": 1,
+      "fingerprint": {
+        "count": 1,
+        "areaSum": 100
+      },
+      "note": "pairwise fold (no cascaded union); 100-tile ladder cap"
+    },
+    {
+      "engine": "turf",
+      "engineVersion": "@turf/turf 7.4.0",
+      "boundary": "pure-js",
+      "scenario": "prepared-scan",
+      "size": 10000,
+      "variants": {
+        "unprepared": 23.425894000014523
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 9817
+      },
+      "note": "ray-casting point-in-polygon (no prepared mode)"
+    },
+    {
+      "engine": "turf",
+      "engineVersion": "@turf/turf 7.4.0",
+      "boundary": "pure-js",
+      "scenario": "prepared-scan",
+      "size": 100000,
+      "variants": {
+        "unprepared": 234.2142429999949
+      },
+      "repeats": 1,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 98145
+      },
+      "note": "ray-casting point-in-polygon (no prepared mode)"
+    },
+    {
+      "engine": "turf",
+      "engineVersion": "@turf/turf 7.4.0",
+      "boundary": "pure-js",
+      "scenario": "buffer",
+      "size": 100,
+      "variants": {
+        "buffer": 84.07421399999293
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 100,
+        "areaSum": 786995.9790526892
+      },
+      "note": "geographic projection built in — planar fingerprint mismatch expected"
+    },
+    {
+      "engine": "polygon-clipping",
+      "engineVersion": "polygon-clipping 0.15.7",
+      "boundary": "pure-js",
+      "scenario": "overlay",
+      "size": 1000,
+      "variants": {
+        "singular": 542.6514010000101
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 794,
+        "areaSum": 17.8228251540433
+      },
+      "note": "Martinez-family clipping — overlay ops only"
+    },
+    {
+      "engine": "polygon-clipping",
+      "engineVersion": "polygon-clipping 0.15.7",
+      "boundary": "pure-js",
+      "scenario": "overlay",
+      "size": 10000,
+      "variants": {
+        "singular": 5642.2878740000015
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 8020,
+        "areaSum": 180.08059418623844
+      },
+      "note": "Martinez-family clipping — overlay ops only"
+    },
+    {
+      "engine": "rbush",
+      "engineVersion": "rbush 4.0.1",
+      "boundary": "pure-js",
+      "scenario": "strtree",
+      "size": 100000,
+      "variants": {
+        "build": 14.655460999987554,
+        "query": 7.812959000002593
+      },
+      "repeats": 5,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 270664
+      },
+      "note": "dynamic R-tree specialist (index angle only)"
+    },
+    {
+      "engine": "flatbush",
+      "engineVersion": "flatbush 4.6.2",
+      "boundary": "pure-js",
+      "scenario": "strtree",
+      "size": 100000,
+      "variants": {
+        "build": 8.114723000035156,
+        "query": 3.7608909999835305
+      },
+      "repeats": 5,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 270664
+      },
+      "note": "static packed index (index angle only, immutable data)"
+    },
+    {
+      "engine": "wkx",
+      "engineVersion": "wkx 0.5.0",
+      "boundary": "pure-js",
+      "scenario": "ingest",
+      "size": 20000,
+      "variants": {
+        "wkt": 27.438695000018924,
+        "wkb": 3.559646000037901,
+        "wkt-write": 17.103243999998085,
+        "wkb-write": 4.467805000022054
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "count": 20000,
+        "areaSum": null
+      },
+      "note": "pure-JS WKB/WKT codec (ingest angle only)"
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "overlay",
+      "size": 1000,
+      "variants": {
+        "singular": 21.572411998931784,
+        "batch": 18.98161999997683
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": 17.822825154043223,
+        "count": 794
+      },
+      "note": "shapely vectorized ufuncs = the batch-layer parallel"
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "overlay",
+      "size": 10000,
+      "variants": {
+        "singular": 217.5414279990946,
+        "batch": 189.12702499983425
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": 180.08059418623458,
+        "count": 8020
+      },
+      "note": "shapely vectorized ufuncs = the batch-layer parallel"
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "overlay",
+      "size": 100000,
+      "variants": {
+        "singular": 1541.394787000172,
+        "batch": 1316.7900730004476
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "areaSum": 1115.0635198374282,
+        "count": 49765
+      },
+      "note": "shapely vectorized ufuncs = the batch-layer parallel"
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "union",
+      "size": 961,
+      "variants": {
+        "unary": 9.753320999152493,
+        "coverage-raw": 0.4601420005201362
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": 961,
+        "count": 1
+      },
+      "note": "coverage-raw = union only (coverage_union_all does NO validity pre-check)"
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "prepared-scan",
+      "size": 10000,
+      "variants": {
+        "unprepared": 19.79278900034842,
+        "prepared": 0.47273500058508944
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 9817
+      },
+      "note": "vectorized; prepare() then auto-used by intersects"
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "prepared-scan",
+      "size": 100000,
+      "variants": {
+        "unprepared": 195.8448479999788,
+        "prepared": 4.755504000058863
+      },
+      "repeats": 1,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 98145
+      },
+      "note": "vectorized; prepare() then auto-used by intersects"
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "strtree",
+      "size": 100000,
+      "variants": {
+        "build": 15.697020999141387,
+        "query": 2.802466999128228
+      },
+      "repeats": 5,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 270664
+      }
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "ingest",
+      "size": 20000,
+      "variants": {
+        "wkt": 72.03642599961313,
+        "wkt-batch": 34.163566000643186,
+        "wkb": 35.640881998915575,
+        "wkb-batch": 4.811678998521529
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "areaSum": null,
+        "count": 20000
+      },
+      "note": "per-item loop vs vectorized ufunc"
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "makevalid",
+      "size": 1000,
+      "variants": {
+        "makevalid": 39.63050200036378
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": 2000,
+        "count": 1000
+      }
+    },
+    {
+      "engine": "shapely",
+      "engineVersion": "shapely 2.2.0 / GEOS 3.14.1",
+      "boundary": "ctypes",
+      "scenario": "buffer",
+      "size": 100,
+      "variants": {
+        "buffer": 12.581187000250793
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": 853524.2002482389,
+        "count": 100
+      }
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "overlay",
+      "size": 1000,
+      "variants": {
+        "singular": 18.819137
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 794,
+        "areaSum": 17.822825154043194
+      },
+      "note": "GEOS C API called directly — zero boundary"
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "overlay",
+      "size": 10000,
+      "variants": {
+        "singular": 187.696461
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 8020,
+        "areaSum": 180.0805941862378
+      },
+      "note": "GEOS C API called directly — zero boundary"
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "overlay",
+      "size": 100000,
+      "variants": {
+        "singular": 1300.930762
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "count": 49765,
+        "areaSum": 1115.0635198382047
+      },
+      "note": "GEOS C API called directly — zero boundary"
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "union",
+      "size": 961,
+      "variants": {
+        "unary": 9.412243,
+        "coverage-raw": 0.446295
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 1,
+        "areaSum": 961
+      },
+      "note": "includes per-repeat clone + collection build (C-API input contract)"
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "prepared-scan",
+      "size": 10000,
+      "variants": {
+        "unprepared": 18.08995,
+        "prepared": 0.472144
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 9817
+      },
+      "note": "GEOS C API called directly — zero boundary"
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "prepared-scan",
+      "size": 100000,
+      "variants": {
+        "unprepared": 181.404669,
+        "prepared": 4.774009
+      },
+      "repeats": 1,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 98145
+      },
+      "note": "GEOS C API called directly — zero boundary"
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "strtree",
+      "size": 100000,
+      "variants": {
+        "build": 14.088679,
+        "query": 1.67164
+      },
+      "repeats": 5,
+      "fingerprint": {
+        "areaSum": null,
+        "hits": 270664
+      },
+      "note": "build includes the build-forcing first query (C API has no explicit build)"
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "ingest",
+      "size": 20000,
+      "variants": {
+        "wkt": 23.892314,
+        "wkb": 3.508119
+      },
+      "repeats": 2,
+      "fingerprint": {
+        "count": 20000,
+        "areaSum": null
+      },
+      "note": "GEOS C API called directly — zero boundary"
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "makevalid",
+      "size": 1000,
+      "variants": {
+        "makevalid": 40.826601
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 1000,
+        "areaSum": 2000
+      },
+      "note": "GEOS C API called directly — zero boundary"
+    },
+    {
+      "engine": "geos-cpp",
+      "engineVersion": "geos 3.14.1-CAPI-1.20.5",
+      "boundary": "c-direct",
+      "scenario": "buffer",
+      "size": 100,
+      "variants": {
+        "buffer": 12.173844
+      },
+      "repeats": 3,
+      "fingerprint": {
+        "count": 100,
+        "areaSum": 853524.2002482403
+      },
+      "note": "GEOS C API called directly — zero boundary"
+    }
+  ],
+  "failures": [
+    {
+      "engine": "geos-wasm",
+      "scenario": "strtree@100000",
+      "error": "GEOSSTRtree_query callback binding unusable (call_indirect to a signature that does not match (evaluating '$(A)(g, I, B)'))"
+    }
+  ],
+  "skips": [
+    {
+      "engine": "jsts",
+      "scenario": "prepared-scan",
+      "reason": "op not workable against the installed package's API"
+    }
+  ]
+}
