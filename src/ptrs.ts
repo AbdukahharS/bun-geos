@@ -12,7 +12,16 @@ export function geomPtrArray(geos: Geos, gs: readonly Geometry[], op: string): B
   for (let i = 0; i < gs.length; i++) {
     const g = gs[i];
     if (g === undefined) throw new RangeError(`${op}: input[${i}] is undefined`);
-    g.requireSame(geos);
+    // Inlined `requireSame` + `assertAlive` (identical checks and messages):
+    // this loop runs once per element of every batch call — 10⁵-element
+    // masks pay a measurable tax for the method-call indirection.
+    if (g.geos !== geos) {
+      throw new TypeError(
+        "bun-geos: geometry belongs to a different Geos context — " +
+          "geometries never cross contexts or threads (D3/D11); transfer via toWKB()/toGeoJSON()/toArrow()",
+      );
+    }
+    g.assertAlive();
     arr[i] = g.bigint; // cached per wrapper (Phase 3) — no BigInt() per call
   }
   return arr;
