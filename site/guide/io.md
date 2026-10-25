@@ -9,6 +9,23 @@ number — never a bare "parse failed".
 Everything here is a method on `Geos`; every geometry you get back is an owned
 [`Geometry`](/guide/memory).
 
+## The readers are linear-only
+
+`fromWKT`, `fromWKB`, and `fromWKBMany` **reject curved payloads** — `CIRCULARSTRING`,
+`COMPOUNDCURVE`, `CURVEPOLYGON`, `MULTICURVE`, `MULTISURFACE` — with a `GeosError` that
+names the offending type. The check recurses into every `GEOMETRYCOLLECTION` child (a
+linear shell can hide a curved member), nesting beyond 32 levels is rejected as
+pathological, and bulk reads stay all-or-nothing: one curved member fails the whole
+batch.
+
+That is deliberate, not a gap. GEOS itself only half-supports curves — they parse and
+measure, but every predicate, overlay, distance, and validity op rejects them — and the
+JS exchange formats are linear-only by spec (GeoJSON RFC 7946, GeoArrow). A curve that
+parsed "successfully" would just fail later, less clearly, so the readers fail at the
+boundary instead. GeoJSON and GeoArrow input cannot carry curves at all, which makes
+this strictly a WKT/WKB concern. The parallel pool's worker ingest goes through the
+same guarded readers — a curve cannot slip in sideways either.
+
 ## WKT — the debug format
 
 ```ts
