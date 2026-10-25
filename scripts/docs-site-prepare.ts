@@ -24,8 +24,8 @@
  * Layout contract (see the Cirth import path mapping): `_index.md` is the only
  * page that slugifies to `index`, and `_` sorts before every lowercase letter,
  * so it deterministically wins the first-root-page race and becomes the site
- * home. Other root-level pages (install, quickstart, reference, changelog)
- * are top-level nav entries; everything else nests under guide/.
+ * home. Other root-level pages (install, quickstart, reference, benchmarks,
+ * changelog) are top-level nav entries; everything else nests under guide/.
  *
  * Usage: bun run docs:site   (assemble + commit the branch; push separately)
  */
@@ -45,6 +45,7 @@ const SITE_FILES: Record<string, string> = {
   "reference.md": "reference.md",
   "install.md": "install.md",
   "quickstart.md": "quickstart.md",
+  "benchmarks.md": "benchmarks.md",
   ...dir("guide"),
 };
 

@@ -93,6 +93,7 @@ build — that decision is not up for debate. For browser workloads, use
 | [Memory & disposal](/guide/memory) | never leak, and prove it |
 | [Workers & parallelism](/guide/workers) | scale across cores safely |
 | [Errors](/guide/errors) | know what throws what, and why |
+| [Benchmarks](/benchmarks) | see the numbers, the methodology, and the cross-library comparison |
 | [API reference](/reference) | look up a signature |
 | [Changelog](/changelog) | see what changed |
 
