@@ -58,6 +58,10 @@ fromArrow(arr: ArrowInput): Geometry                 // tagged geoarrow.* or leg
 toArrow(g): ArrowArray
 ```
 
+The WKT/WKB readers are **linear-only**: curved payloads (`CIRCULARSTRING`,
+`CURVEPOLYGON`, …) throw a `GeosError` naming the type — curves nested inside a
+`GEOMETRYCOLLECTION` included. → [Geometry I/O](/guide/io).
+
 Direct constructors:
 
 ```ts
@@ -102,6 +106,7 @@ relatePatternAll(bs, pattern, opts?): Uint8Array
 insert(g): number                  // pre-build only
 build(): void                      // query() auto-builds; insert after build throws
 query(env: Geometry): Int32Array   // envelope candidates — exact filter is yours
+queryAll(envs): { ids: Int32Array; offsets: Uint32Array }  // N queries, one crossing
 nearest(g): number                 // id, or -1 for an empty tree
 queryFilter(env, pg: Prepared, pred?: PreparedPredName): Int32Array  // index + exact predicate, one crossing
 get(id): Geometry
@@ -133,7 +138,7 @@ voronoi(g, opts?): Geometry
 lineMerge(g, opts?): Geometry                        lineSubstring(g, start, end): Geometry
 offsetCurve(g, distance, opts?): Geometry            sharedPaths(a, b): Geometry
 snap(a, b, tolerance): Geometry                      node(g): Geometry
-buildArea(g): Geometry                               polygonize(gs): Geometry
+buildArea(g): Geometry                               polygonize(g | gs): Geometry
 orientPolygons(g, dir?: "ccw" | "cw"): Geometry
 ```
 
@@ -228,6 +233,7 @@ class GeosError extends Error {
   op: string                    // e.g. "fromGeoJSON", "aborted"
   geosMessage?: string          // the captured GEOS message
   detail?: { jsonPath?, ring?, vertex?, byteOffset? }
+  diagnostics?: { validReason?, locationWKT?, simpleLocationsWKT? }  // reserved slot
 }
 class LoaderError extends Error {}                       // environment / native load
 class GeosParallelError extends GeosError {

@@ -105,6 +105,10 @@ This converts a leak into a number you can alert on. It is not a strategy:
   100-million-vertex batch at 3 AM.
 - A nonzero, growing `finalized` counter means you missed a disposal site. Fix the
   site; don't celebrate the net.
+- Geometries created while an arena is open skip the per-geometry net — the arena's
+  bulk destroy is the backstop, and double-netting every batch item is wasted work
+  (skipping it measurably speeds up `fromWKBMany`-scale ingests). Context-owned
+  geometries keep the full net.
 
 ## Context discipline
 

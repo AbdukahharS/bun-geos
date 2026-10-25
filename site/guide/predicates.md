@@ -32,8 +32,8 @@ const ok = geos.relatesPattern(a, b, "T*T***T**"); // query by mask
 
 If one geometry participates in many tests, prepare it. Preparation builds an internal
 structure once; each subsequent predicate skips the repeated work. On scan-heavy
-workloads this is the difference measured in the repo's benchmark suite at **~32×**
-over unprepared scans.
+workloads this is the difference measured in the repo's
+[benchmark suite](/benchmarks) at **~33×** over unprepared scans.
 
 ```ts
 using prep = a.prepare();
@@ -90,6 +90,9 @@ const tree = geos.strtree(geometries, 10); // nodeCapacity 10 is the classic def
 const hits: Int32Array = tree.query(envelope); // candidate ids, ONE crossing
 const id = tree.nearest(queryGeom);            // -1 for an empty tree
 const g = tree.get(id);                        // the inserted geometry back
+
+// many envelopes, still ONE crossing:
+const { ids, offsets } = tree.queryAll(envelopes); // query i owns ids[offsets[i-1] … offsets[i])
 ```
 
 - **Candidates, not answers**: `query` returns envelope hits. The exact filter is your
@@ -98,12 +101,16 @@ const g = tree.get(id);                        // the inserted geometry back
   one crossing.
 - `query` builds the tree on first use; `build()` is there if you want to pay the cost
   explicitly. After build, the tree is frozen — `insert` on a built tree throws.
+- `queryAll(envs)` runs N envelope queries in one crossing and returns the flat
+  candidate ids plus cumulative `Uint32Array` offsets — slice `ids` per query instead
+  of looping `query` in JS.
 - `queryFilter(env, prepared, pred)` pushes the exact predicate into the C callback:
   one crossing that returns only the ids that pass, when you'd otherwise loop in JS.
 - `nearest` walks a C distance table — correct nearest-neighbor, no JS loop.
 
-The index measured **~122×** over a naive JS scan in the repo's benchmark suite; the
-point isn't the number, it's that the crossing count stops mattering.
+The index measured **~90×** over a naive JS scan in the repo's
+[benchmark suite](/benchmarks); the point isn't the number, it's that the crossing
+count stops mattering.
 
 ## Choosing the right speed
 

@@ -39,6 +39,12 @@ Where each detail field comes from:
 (Bad WKB fails with the GEOS message and no structural detail; the `byteOffset` detail
 slot exists in the type but no current throw site populates it.)
 
+One further field, `e.diagnostics`, is the reserved carrier for repair-op validity
+context — string-only by design, because a thrown error must never own native memory.
+No current throw site populates it; for invalidity detail today, use
+`geos.isValidDetail(g)` or `geos.isSimpleDetail(g)`, which hand the location to you as
+a real geometry instead.
+
 ## `RangeError` / `TypeError` — your bug, loudly
 
 These never indicate native trouble; they indicate the call was wrong before any C
