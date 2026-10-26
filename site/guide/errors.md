@@ -1,3 +1,7 @@
+---
+description: The error model as a two-column table — your bug throws TypeError or RangeError, your data throws GeosError carrying the operation and the exact structural location.
+---
+
 # Errors
 
 The error model is a two-column table: **your bug** or **your data**. Programming

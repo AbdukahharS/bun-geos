@@ -1,3 +1,7 @@
+---
+description: Owning C memory without leaking — using-blocks as the default, arenas for one-teardown loops, live memory accounting, and a finalizer as the net rather than the strategy.
+---
+
 # Memory & disposal
 
 Every `Geometry` you hold is a handle to C memory. This library's deal is honest: you

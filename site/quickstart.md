@@ -1,3 +1,7 @@
+---
+description: The five-minute tour — create a context, build geometry from text, bytes, or JSON, overlay it, repair it, ask a spatial question, and dispose without leaking.
+---
+
 # Quickstart
 
 The five-minute tour: create a context, build two geometries, overlay them, repair

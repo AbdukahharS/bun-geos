@@ -1,3 +1,7 @@
+---
+description: Requirements, per-platform native packages, how to verify the install, every loader error decoded, and how to point the loader at your own GEOS build.
+---
+
 # Install & platforms
 
 ## Requirements

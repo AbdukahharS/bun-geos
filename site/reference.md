@@ -1,3 +1,7 @@
+---
+description: Every public export on one page — complete signatures for construction and I/O, predicates, overlays, repair, measures, precision, batch forms, and the parallel pool.
+---
+
 # API reference
 
 Every public export, one page. Signatures are complete; behaviors live in the
