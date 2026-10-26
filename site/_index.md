@@ -1,3 +1,7 @@
+---
+description: Bun-native TypeScript bindings for GEOS 3.14 — robust overlays, topology repair, and spatial predicates at native speed, with ownership rules that keep you from leaking.
+---
+
 # @shzd/bun-geos
 
 **Bun-native TypeScript bindings for [GEOS](https://libgeos.org) 3.14 — the geometry engine

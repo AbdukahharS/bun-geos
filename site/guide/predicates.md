@@ -1,3 +1,7 @@
+---
+description: Spatial questions at three speeds — single predicates, prepared predicates built once and asked many times, and batch or STRtree forms that skip the JS loop entirely.
+---
+
 # Predicates & indexing
 
 Spatial questions, three speeds: single predicates, prepared predicates, and indexed

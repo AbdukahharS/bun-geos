@@ -1,3 +1,7 @@
+---
+description: Moving geometry across threads safely, or never writing the threading code at all — the thread rules, sizing, cancellation, and the parallel pool that mirrors the batch API.
+---
+
 # Workers & parallelism
 
 Two different problems live on this page: **moving geometry across threads** (the

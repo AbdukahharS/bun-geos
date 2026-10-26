@@ -1,3 +1,7 @@
+---
+description: Headline numbers for overlays, repair, and batch scans — what the library is fast at, measured honestly against the other engines, and reproducible on your hardware.
+---
+
 # Benchmarks
 
 What this library is fast at, how the numbers were measured, and how to reproduce

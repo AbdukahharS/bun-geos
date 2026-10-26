@@ -1,3 +1,7 @@
+---
+description: The single-geometry vocabulary — boolean overlays, buffers, validity repair, measures, hulls, triangulation, and accessors, every signature on this page real.
+---
+
 # Overlays & operations
 
 The operations tour. Every signature here is real — this page mirrors the public

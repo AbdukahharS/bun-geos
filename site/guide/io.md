@@ -1,3 +1,7 @@
+---
+description: WKT, WKB/EWKB, GeoJSON, and GeoArrow in and out — one FFI crossing per binary path, with malformed GeoJSON errors that point at the exact spot in your document.
+---
+
 # Geometry I/O
 
 Four formats in, four formats out: WKT, WKB/EWKB, GeoJSON, and GeoArrow-shaped
