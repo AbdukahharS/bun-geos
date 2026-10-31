@@ -3,7 +3,8 @@
  * (api-surface §Spatial index). Items stored in the C tree are INTEGER IDS
  * (1-based `(void*)(intptr_t)(id+1)` — 0 would collide with
  * `nearest_generic`'s NULL "no answer" return; D16), never geometry
- * pointers; a JS-side `Map<id, Geometry>` is the registry.
+ * pointers; a JS-side `Geometry[]` (ids are sequential by construction) is
+ * the registry.
  *
  * `nearest` needs special machinery (D16): GEOS's plain
  * `GEOSSTRtree_nearest` casts items back to `GEOSGeometry*` to compute
@@ -21,7 +22,7 @@ import type { Pointer } from "bun:ffi";
 import type { Geometry } from "../geometry.ts";
 import type { Geos } from "../geos.ts";
 import { geomPtrArray } from "../ptrs.ts";
-import type { GeomPtr, StrTreePtr } from "../types.ts";
+import type { StrTreePtr } from "../types.ts";
 import { PreparedPred } from "../types.ts";
 import type { Prepared } from "./prepared.ts";
 
@@ -32,10 +33,14 @@ export class STRtree implements Disposable {
   readonly nodeCapacity: number;
 
   #tree: StrTreePtr;
-  /** id → geometry (STRONG — the liveness mechanism, D16). */
-  #items = new Map<number, Geometry>();
-  /** id-ordered raw pointers, snapshotted into the C table at build(). */
-  #ptrs: GeomPtr[] = [];
+  /**
+   * id → geometry (STRONG — the liveness mechanism, D16). Ids are
+   * sequential by construction (`insert`/`insertMany` assign
+   * `length-before + i`), so a plain array IS the registry — a 100k-item
+   * build pays ~11 ms in `Map.set` vs ~2 ms in pushes (measured), and the
+   * array is the build path's single largest JS cost after the pin.
+   */
+  #items: Geometry[] = [];
   /** Shim-owned id→geometry table (freed at dispose). */
   #table: Pointer | null = null;
   #built = false;
@@ -58,7 +63,7 @@ export class STRtree implements Disposable {
   }
 
   get size(): number {
-    return this.#items.size;
+    return this.#items.length;
   }
 
   get built(): boolean {
@@ -90,13 +95,50 @@ export class STRtree implements Disposable {
       );
     }
     g.requireSame(this.geos);
-    const id = this.#items.size;
+    const id = this.#items.length;
     const item = (id + 1) as unknown as Pointer;
     this.geos.native.geos.GEOSSTRtree_insert_r(this.geos.ctx, this.#tree, g.ptr, item);
-    this.#items.set(id, g);
-    this.#ptrs.push(g.ptr);
+    this.#items.push(g);
     g.pinBy(this); // D17: tree holds the geometry alive (strong ref + pin)
     return id;
+  }
+
+  /**
+   * Insert n geometries in ONE shim crossing (the batch twin of `insert`;
+   * D32). Ids stay sequential — `ids[i] === size-before-call + i`, the same
+   * contract `geos.strtree(geoms)` documents (id equals the input index for
+   * a fresh tree). All inputs are validated BEFORE the crossing (same
+   * context, alive, tree not frozen — the `geomPtrArray` pre-pass), so the
+   * call is all-or-nothing: the C loop cannot fail after validation (the
+   * D18 deviation, D32 — `GEOSSTRtree_insert_r` is void and signal-free).
+   * Insertion after `build()` throws: the tree is frozen once built.
+   */
+  insertMany(geoms: readonly Geometry[]): number[] {
+    this.#assertOpen("insertMany()");
+    if (this.#built) {
+      throw new TypeError(
+        "bun-geos: STRtree insert after build() — the tree is frozen once built (dispose and rebuild to change the item set)",
+      );
+    }
+    if (geoms.length === 0) return [];
+    const ptrs = geomPtrArray(this.geos, geoms, "insertMany");
+    const start = this.#items.length;
+    const r = this.geos.native.shim.geos_shim_strtree_insert_all(
+      this.geos.shim,
+      this.#tree,
+      ptrs,
+      geoms.length,
+      start, // the batch CONTINUES the tree's id sequence (D32)
+    );
+    if (r !== 0) throw this.geos.fail("geos_shim_strtree_insert_all");
+    const ids: number[] = new Array(geoms.length);
+    for (let i = 0; i < geoms.length; i++) {
+      const g = geoms[i]!;
+      this.#items.push(g);
+      g.pinBy(this); // D17: tree holds the geometry alive (strong ref + pin)
+      ids[i] = start + i;
+    }
+    return ids;
   }
 
   /**
@@ -109,12 +151,12 @@ export class STRtree implements Disposable {
     if (this.#built) return;
     const r = this.geos.native.geos.GEOSSTRtree_build_r(this.geos.ctx, this.#tree);
     if (r !== 1) throw this.geos.fail("GEOSSTRtree_build_r");
-    const ptrs = new BigUint64Array(this.#ptrs.length);
-    for (let i = 0; i < this.#ptrs.length; i++) ptrs[i] = BigInt(this.#ptrs[i]!);
+    const ptrs = new BigUint64Array(this.#items.length);
+    for (let i = 0; i < this.#items.length; i++) ptrs[i] = this.#items[i]!.bigint;
     const table = this.geos.native.shim.geos_shim_strtree_bind_geoms(
       this.geos.shim,
       ptrs,
-      this.#ptrs.length,
+      this.#items.length,
     );
     if (table === null) throw this.geos.fail("geos_shim_strtree_bind_geoms");
     this.#table = table;
@@ -129,10 +171,10 @@ export class STRtree implements Disposable {
   query(env: Geometry): Int32Array {
     this.#assertOpen("query()");
     env.requireSame(this.geos);
-    if (this.#items.size === 0) return new Int32Array(0);
+    if (this.#items.length === 0) return new Int32Array(0);
     this.build();
     const shim = this.geos.native.shim;
-    let out = new Int32Array(Math.max(32, Math.min(this.#items.size, 4096)));
+    let out = new Int32Array(Math.max(32, Math.min(this.#items.length, 4096)));
     let total = shim.geos_shim_strtree_query(this.geos.shim, this.#tree, env.ptr, out, out.length);
     if (total < 0) throw this.geos.fail("geos_shim_strtree_query");
     if (total > out.length) {
@@ -158,7 +200,7 @@ export class STRtree implements Disposable {
   queryAll(envs: readonly Geometry[]): { ids: Int32Array; offsets: Uint32Array } {
     this.#assertOpen("queryAll()");
     for (const e of envs) e.requireSame(this.geos);
-    if (this.#items.size === 0 || envs.length === 0) {
+    if (this.#items.length === 0 || envs.length === 0) {
       return { ids: new Int32Array(0), offsets: new Uint32Array(envs.length) };
     }
     this.build();
@@ -167,7 +209,7 @@ export class STRtree implements Disposable {
     // First-guess capacity: every query can in principle hit every item —
     // `items.size` is the per-query maximum, not the total, so overflow is
     // detected from the shim's returned total and one re-request follows.
-    let cap = this.#items.size;
+    let cap = this.#items.length;
     for (let attempt = 0; attempt < 3; attempt++) {
       const ids = new Int32Array(cap);
       const offsets = new Uint32Array(envs.length);
@@ -200,7 +242,7 @@ export class STRtree implements Disposable {
   nearest(g: Geometry): number {
     this.#assertOpen("nearest()");
     g.requireSame(this.geos);
-    if (this.#items.size === 0) return -1;
+    if (this.#items.length === 0) return -1;
     this.build();
     const r = this.geos.native.shim.geos_shim_strtree_nearest(
       this.geos.shim,
@@ -236,7 +278,7 @@ export class STRtree implements Disposable {
     if (pg.disposed) {
       throw new TypeError("bun-geos: Prepared used after dispose (in queryFilter)");
     }
-    if (this.#items.size === 0) return new Int32Array(0);
+    if (this.#items.length === 0) return new Int32Array(0);
     this.build();
     const shim = this.geos.native.shim;
     const run = (out: Int32Array): number =>
@@ -250,7 +292,7 @@ export class STRtree implements Disposable {
         out,
         out.length,
       );
-    let out = new Int32Array(Math.max(32, Math.min(this.#items.size, 4096)));
+    let out = new Int32Array(Math.max(32, Math.min(this.#items.length, 4096)));
     let total = run(out);
     if (total === -1) throw this.geos.fail("geos_shim_strtree_query_prepared");
     if (total === -2) throw this.geos.fail("geos_shim_strtree_query_prepared (interrupted)");
@@ -265,7 +307,7 @@ export class STRtree implements Disposable {
 
   /** The geometry registered under `id` (throws on unknown ids). */
   get(id: number): Geometry {
-    const g = this.#items.get(id);
+    const g = this.#items[id];
     if (g === undefined) throw new RangeError(`bun-geos: STRtree has no item ${id}`);
     return g;
   }
@@ -275,9 +317,8 @@ export class STRtree implements Disposable {
     if (this.#disposed) return;
     this.#disposed = true;
     this.geos.unregisterConsumable(this);
-    for (const g of this.#items.values()) g.unpinBy(this);
-    this.#items.clear();
-    this.#ptrs.length = 0;
+    for (const g of this.#items) g.unpinBy(this);
+    this.#items.length = 0;
     if (this.#table !== null) {
       this.geos.native.shim.geos_shim_strtree_table_free(this.#table);
       this.#table = null;

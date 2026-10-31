@@ -39,6 +39,7 @@ EXPORTS
 	geos_shim_prepared_relate_pattern_all
 	geos_shim_read_wkb_many
 	geos_shim_strtree_bind_geoms
+	geos_shim_strtree_insert_all
 	geos_shim_strtree_nearest
 	geos_shim_strtree_query
 	geos_shim_strtree_query_all

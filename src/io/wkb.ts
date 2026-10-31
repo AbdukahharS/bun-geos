@@ -45,7 +45,10 @@ export interface FromWKBManyOptions {
  * `offsets[i]` is the end-byte of geometry i (offsets[0] = end of the
  * first), strictly increasing, last ≤ wkb.length (validated here — C has
  * no length info; an over-large offset would read out of bounds).
- * Failures are all-or-nothing (D22).
+ * Failures are all-or-nothing (D22). The D31 linear check rides the same
+ * crossing (shim-side `assert_linear` per parsed row, including collection
+ * recursion) — a curved row rejects the batch before any geometry reaches
+ * JS, with no per-row FFI cost.
  */
 export function fromWKBMany(
   geos: Geos,
@@ -80,11 +83,8 @@ export function fromWKBMany(
     out,
   );
   if (r !== 0) throw geos.fail("geos_shim_read_wkb_many");
-  const geoms = geos.takeMany("geos_shim_read_wkb_many", out, opts.arena ?? geos.currentArena());
-  // D31: one curved row rejects the whole batch (all-or-nothing, D22); the
-  // already-registered survivors stay arena-owned until disposal.
-  for (const g of geoms) assertLinear(geos, g, "fromWKBMany");
-  return geoms;
+  // D31 is enforced shim-side (assert_linear) — the batch crosses ONCE.
+  return geos.takeMany("geos_shim_read_wkb_many", out, opts.arena ?? geos.currentArena());
 }
 
 /** WKB bytes of a geometry — a fresh copy, safe to hold and transfer. */

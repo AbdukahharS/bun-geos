@@ -61,6 +61,7 @@ export const SHIM_TABLE = {
     args: ["ptr", "ptr", "ptr", "u32", "ptr", "ptr", "u32"],
     returns: "i32",
   },
+  geos_shim_strtree_insert_all: { args: ["ptr", "ptr", "ptr", "u32", "usize"], returns: "i32" },
   geos_shim_strtree_bind_geoms: { args: ["ptr", "ptr", "u32"], returns: "ptr" },
   geos_shim_strtree_table_free: { args: ["ptr"], returns: "void" },
   geos_shim_strtree_nearest: { args: ["ptr", "ptr", "ptr", "ptr"], returns: "i32" },

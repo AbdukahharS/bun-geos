@@ -34,6 +34,10 @@ const RULES: Array<{ match: RegExp; note: string }> = [
     note: "batch masks, 0 ok / 1 exception / 2 interrupted (D18)",
   },
   { match: /^geos_shim_relate_pattern_all/, note: "batch DE-9IM (D18)" },
+  {
+    match: /^geos_shim_strtree_insert_all/,
+    note: "batch insert, 0 ok / 1 invalid-args; continues the id sequence (D32)",
+  },
   { match: /^geos_shim_strtree_/, note: "1-based id items (D16); nearest via bound id→geom table" },
   { match: /^geos_shim_overlay_all/, note: "8-op id table (D22); grid for *_PREC" },
   { match: /^geos_shim_unary_all/, note: "9-op id table (D27); d1..d4 carry scalar params" },
@@ -42,7 +46,7 @@ const RULES: Array<{ match: RegExp; note: string }> = [
   { match: /^geos_shim_buffer_all/, note: "caller-built params (D22)" },
   {
     match: /^geos_shim_read_wkb_many/,
-    note: "byte offsets (the one byte-offset family); u32 caps at 4 GB",
+    note: "byte offsets (the one byte-offset family); u32 caps at 4 GB; D31 linear check rides the crossing",
   },
   { match: /^geos_shim_num_points_many/, note: "type-generic vertex counts (D23 chunking)" },
   { match: /^geos_shim_heap_bytes/, note: "D24 accounting" },

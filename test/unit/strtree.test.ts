@@ -324,3 +324,105 @@ describe("STRtree lifecycle (D16/D17)", () => {
       }
     }));
 });
+
+describe("STRtree insertMany (the batch insert, D32)", () => {
+  it("assigns sequential ids continuing after insert(); queries answer", () =>
+    withGeos((geos) => {
+      const a = square(geos, 0, 0);
+      const batch = [square(geos, 10, 10), square(geos, 20, 20), square(geos, 30, 30)];
+      const tree = geos.strtree();
+      try {
+        expect(tree.insert(a)).toBe(0);
+        expect(tree.insertMany(batch)).toEqual([1, 2, 3]);
+        expect(tree.size).toBe(4);
+        using q1 = square(geos, 9.5, 9.5, 1);
+        expect([...tree.query(q1)]).toEqual([1]);
+        using q3 = square(geos, 29.5, 29.5, 1);
+        expect([...tree.query(q3)]).toEqual([3]);
+      } finally {
+        tree.dispose();
+        a.dispose();
+        for (const g of batch) g.dispose();
+      }
+    }));
+
+  it("matches the per-item insert tree answer-for-answer (same fixture)", () =>
+    withGeos((geos) => {
+      const geoms = Array.from({ length: 60 }, (_, i) => square(geos, i % 10, Math.floor(i / 10)));
+      const byLoop = geos.strtree();
+      const byBatch = geos.strtree();
+      try {
+        for (const g of geoms) byLoop.insert(g);
+        byBatch.insertMany(geoms);
+        using query = square(geos, 4.5, 4.5, 2);
+        const a = [...byLoop.query(query)].sort();
+        const b = [...byBatch.query(query)].sort();
+        expect(b).toEqual(a);
+        expect(a.length).toBeGreaterThan(0);
+        expect(byBatch.nearest(query)).toBe(byLoop.nearest(query));
+      } finally {
+        byLoop.dispose();
+        byBatch.dispose();
+        for (const g of geoms) g.dispose();
+      }
+    }));
+
+  it("insert after build throws for insertMany too (frozen tree)", () =>
+    withGeos((geos) => {
+      const geoms = [square(geos, 0, 0)];
+      const more = [square(geos, 10, 10)];
+      const tree = geos.strtree(geoms);
+      try {
+        using q = square(geos, -5, -5, 1); // forces build
+        tree.query(q);
+        expect(() => tree.insertMany(more)).toThrow(/frozen once built/);
+        expect(tree.size).toBe(1);
+      } finally {
+        tree.dispose();
+        for (const g of geoms) g.dispose();
+        for (const g of more) g.dispose();
+      }
+    }));
+
+  it("empty array is a no-op returning no ids", () =>
+    withGeos((geos) => {
+      using tree = geos.strtree();
+      expect(tree.insertMany([])).toEqual([]);
+      expect(tree.size).toBe(0);
+    }));
+
+  it("a foreign-context geometry aborts BEFORE the crossing: nothing inserted", () =>
+    withGeos((geosA) =>
+      withGeos((geosB) => {
+        const foreign = square(geosA, 0, 0);
+        const ours = square(geosB, 5, 5);
+        const tree = geosB.strtree();
+        try {
+          expect(() => tree.insertMany([ours, foreign])).toThrow(/different Geos context/);
+          expect(tree.size).toBe(0); // the valid prefix did NOT slip in
+        } finally {
+          tree.dispose();
+          foreign.dispose();
+          ours.dispose();
+        }
+      }),
+    ));
+
+  it("insertMany pins its geometries (D17): pin, arena relinquish, release", () =>
+    withGeos((geos) => {
+      let kept: Geometry;
+      {
+        using _arena = geos.arena();
+        const g = square(geos, 0, 0);
+        const tree = geos.strtree();
+        tree.insertMany([g]); // pin removes g from the arena
+        kept = g;
+        expect(g.pinned).toBe(true);
+        expect(() => g.dispose()).toThrow(TypeError);
+        tree.dispose(); // release the pin; geometry is caller-owned again
+      } // arena exits — must NOT free `kept`
+      expect(kept.pinned).toBe(false);
+      expect(kept.disposed).toBe(false);
+      kept.dispose();
+    }));
+});

@@ -83,6 +83,7 @@ extern int geos_shim_buffer_all(GeosShim *, const void *, double, void **, unsig
 extern int geos_shim_read_wkb_many(GeosShim *, void *, const unsigned char *, const unsigned int *,
                                    unsigned int, void **);
 extern int geos_shim_num_points_many(GeosShim *, void **, unsigned int, uint32_t *);
+extern int geos_shim_strtree_insert_all(GeosShim *, void *, void **, unsigned int, size_t);
 extern int geos_shim_heap_bytes(GeosShim *, void **, unsigned int, int64_t *);
 extern int geos_shim_build_polygonal_many(GeosShim *, const double *, const unsigned int *,
                                           unsigned int, const unsigned int *, unsigned int, int, int,
@@ -863,6 +864,148 @@ int main(void) {
     geos_shim_last_error(s);
     geos_shim_destroy_many(s, (void *[]){exact, wobbly[0], wobbly[1], lines[0], lines[1], disjoint[0]},
                            6);
+  }
+
+  /* 31. strtree_insert_all (D32): scenario 19's 50-item tree inserted in
+   * ONE crossing — query/nearest answers must be IDENTICAL to the per-item
+   * build, pinning the 1-BASED item encoding and sequential id assignment.
+   * The D18 deviation is structural: a void, signal-free GEOS call loop
+   * (see the shim comment) — here we pin that a NULL input is rejected in
+   * the pre-pass BEFORE anything inserts (all-or-nothing at the boundary). */
+  {
+    extern void *GEOSSTRtree_create_r(void *, size_t);
+    extern int GEOSSTRtree_build_r(void *, void *);
+    extern void GEOSSTRtree_destroy_r(void *, void *);
+    extern void GEOSSTRtree_insert_r(void *, void *, const void *, void *);
+    void *tree2 = GEOSSTRtree_create_r(ctx, 10);
+    CHECK(tree2 != NULL, "GEOSSTRtree_create_r (31)");
+    void *items2[50];
+    for (int i = 0; i < 50; i++) {
+      double xy[4] = {i, i, i + 1, i + 1};
+      items2[i] = mk_line(s, xy, 2);
+    }
+    CHECK(geos_shim_strtree_insert_all(s, tree2, items2, 50, 0) == 0, "insert_all succeeds");
+    CHECK(geos_shim_strtree_insert_all(s, tree2, NULL, 3, 0) == 1 && has_error(s),
+          "insert_all NULL geoms is an error");
+    geos_shim_last_error(s);
+    /* NULL mid-array rejects in the pre-pass — nothing inserted; the tree
+     * must behave as EMPTY (query finds nothing). */
+    void *tree3 = GEOSSTRtree_create_r(ctx, 10);
+    CHECK(tree3 != NULL, "GEOSSTRtree_create_r (31b)");
+    void *oneBad[3] = {items2[0], NULL, items2[1]};
+    CHECK(geos_shim_strtree_insert_all(s, tree3, oneBad, 3, 0) == 1 && has_error(s),
+          "insert_all NULL mid-array rejected before any insert");
+    geos_shim_last_error(s);
+    GEOSSTRtree_build_r(ctx, tree3);
+    int32_t none[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+    void *qNone = mk_line(s, (double[4]){0, 0, 1, 1}, 2);
+    CHECK(geos_shim_strtree_query(s, tree3, qNone, none, 8) == 0,
+          "rejected insert_all leaves the tree empty (all-or-nothing)");
+    GEOSGeom_destroy_r(ctx, qNone);
+    GEOSSTRtree_destroy_r(ctx, tree3);
+    /* CONTINUATION pin (D32): 2 per-item inserts, then a 3-item batch with
+     * startId = 2 — the batch items must be 3,4,5, so a query hitting only
+     * segment 2 decodes id 2. (The startId-ignored bug this pins would
+     * store the batch at items 1..3 and decode id 0 here.) */
+    void *tree4 = GEOSSTRtree_create_r(ctx, 10);
+    CHECK(tree4 != NULL, "GEOSSTRtree_create_r (31c)");
+    GEOSSTRtree_insert_r(ctx, tree4, items2[0], (void *)(intptr_t)1);
+    GEOSSTRtree_insert_r(ctx, tree4, items2[1], (void *)(intptr_t)2);
+    CHECK(geos_shim_strtree_insert_all(s, tree4, items2 + 2, 3, 2) == 0,
+          "insert_all continues the tree's id sequence (startId=2)");
+    GEOSSTRtree_build_r(ctx, tree4);
+    int32_t one[4] = {0};
+    void *qSeg2 = mk_line(s, (double[4]){2.5, 2.5, 2.6, 2.6}, 2);
+    int gotSeg2 = geos_shim_strtree_query(s, tree4, qSeg2, one, 4);
+    CHECK(gotSeg2 == 1 && one[0] == 2, "query decodes the CONTINUED id 2");
+    GEOSGeom_destroy_r(ctx, qSeg2);
+    GEOSSTRtree_destroy_r(ctx, tree4);
+    /* identical answers to scenario 19's per-item build */
+    GEOSSTRtree_build_r(ctx, tree2);
+    void *query2 = mk_line(s, (double[4]){10, 10, 15, 15}, 2);
+    int32_t ids5[64] = {0};
+    CHECK(geos_shim_strtree_query(s, tree2, query2, ids5, 64) == 7,
+          "insert_all tree: query total 7 (ids 9..15)");
+    int ok2 = 1;
+    for (int k = 0; k < 7; k++)
+      if (ids5[k] < 9 || ids5[k] > 15)
+        ok2 = 0;
+    CHECK(ok2, "insert_all tree: query ids are the 9..15 range");
+    void *table2 = geos_shim_strtree_bind_geoms(s, items2, 50);
+    CHECK(table2 != NULL, "strtree_bind_geoms (31)");
+    void *farQuery2 = mk_line(s, (double[4]){49.4, 49.4, 49.4, 49.4}, 2);
+    CHECK(geos_shim_strtree_nearest(s, tree2, farQuery2, table2) == 49,
+          "insert_all tree: nearest picks id 49 for (49.4, 49.4)");
+    void *id0Query2 = mk_line(s, (double[4]){-0.5, 0, 0.5, 0}, 2);
+    CHECK(geos_shim_strtree_nearest(s, tree2, id0Query2, table2) == 0,
+          "insert_all tree: nearest reports id 0 (NULL-overload pin)");
+    GEOSGeom_destroy_r(ctx, farQuery2);
+    GEOSGeom_destroy_r(ctx, id0Query2);
+    geos_shim_strtree_table_free(table2);
+    GEOSGeom_destroy_r(ctx, query2);
+    geos_shim_destroy_many(s, items2, 50);
+    GEOSSTRtree_destroy_r(ctx, tree2);
+  }
+
+  /* 32. read_wkb_many + D31: curved rows reject the batch IN the crossing
+   * (assert_linear) — a top-level curve, a curve hidden in a linear id-7
+   * shell (the recursion path), and the all-or-nothing contract (the parsed
+   * row is destroyed with the partials; ASan/Valgrind watch this). */
+  {
+    /* CIRCULARSTRING(0 0, 1 1, 2 0), little-endian ISO WKB: order(1) +
+     * type(4)=8 + nPoints(4)=3 + 3 points × 16 = 57 bytes. */
+    unsigned char cs[57] = {
+        0x01, 0x08, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+        /* (0 0) */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* x */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* y */
+        /* (1 1) */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F, /* x */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F, /* y */
+        /* (2 0) */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, /* x */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* y */
+    };
+    /* GEOMETRYCOLLECTION(CIRCULARSTRING(...)) — 9 + 57 = 66 bytes. */
+    unsigned char coll[66];
+    memcpy(coll, (unsigned char[9]){0x01, 0x07, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00}, 9);
+    memcpy(coll + 9, cs, 57);
+    /* POINT(5 5) — 21 bytes. */
+    unsigned char pt5[21] = {
+        0x01, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x40, /* x = 5.0 */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x40, /* y = 5.0 */
+    };
+    void *reader = GEOSWKBReader_create_r(ctx);
+    CHECK(reader != NULL, "wkb reader fixture (32)");
+    /* mixed batch, curved row at index 1: row 0 PARSED — the reject must
+     * destroy BOTH rows (rdA stays NULL; ASan/Valgrind verify). */
+    unsigned char bufA[78];
+    memcpy(bufA, pt5, 21);
+    memcpy(bufA + 21, cs, 57);
+    unsigned int offsA[2] = {21, 78};
+    void *rdA[2] = {0};
+    int rA = geos_shim_read_wkb_many(s, reader, bufA, offsA, 2, rdA);
+    const char *m32 = geos_shim_last_error(s); /* consume-on-read: ONCE */
+    CHECK(rA == 1 && m32 != NULL, "read_wkb_many rejects a curved row mid-batch");
+    CHECK(m32 != NULL && strstr(m32, "CircularString") != NULL &&
+              strstr(m32, "linear-only") != NULL,
+          "curved rejection names the type and D31");
+    fprintf(stderr, "  (row 1: %s)\n", m32 ? m32 : "(null)");
+    /* curve hidden in a GEOMETRYCOLLECTION — the recursion path. */
+    unsigned int offsB[1] = {66};
+    void *rdB[1] = {0};
+    int rB = geos_shim_read_wkb_many(s, reader, coll, offsB, 1, rdB);
+    const char *mB = geos_shim_last_error(s); /* consume-on-read: ONCE */
+    CHECK(rB == 1 && mB != NULL && strstr(mB, "CircularString") != NULL,
+          "read_wkb_many rejects a collection-hidden curve (recursion)");
+    /* the reader itself is untouched — a clean batch still works after. */
+    unsigned int offsC[1] = {21};
+    void *rdC[1] = {0};
+    CHECK(geos_shim_read_wkb_many(s, reader, pt5, offsC, 1, rdC) == 0,
+          "reader stays usable after curved rejections");
+    geos_shim_destroy_many(s, rdC, 1);
+    GEOSWKBReader_destroy_r(ctx, reader);
   }
 
   geos_shim_finish(s);

@@ -186,8 +186,11 @@ export function toolchainFor(target: Target): Toolchain {
         compilerFlags: [],
         installRpath: "",
         shim: {
+          // /utf-8: shim.c carries UTF-8 text (comments and the D31 error
+          // string) — without this flag MSVC transcodes literals through the
+          // system code page and the Windows error message drifts byte-wise.
           compiler: "cl",
-          sharedFlags: ["/nologo", "/O2", "/W4", "/LD"],
+          sharedFlags: ["/nologo", "/O2", "/W4", "/LD", "/utf-8"],
           linkFlags: ["/DEF:native/shim.def"],
           rpath: "",
           msvc: true,

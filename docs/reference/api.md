@@ -240,6 +240,7 @@ innermost open one).
 ```ts
 const tree = geos.strtree(geoms?, nodeCapacity = 10);
 tree.insert(g): number;   // returns the id (input order)
+tree.insertMany(geoms): number[];  // ONE crossing (D32); ids continue the sequence
 tree.build(): void;       // frozen after build (D16: the id table binds here)
 tree.query(env): Int32Array;      // candidate ids, one crossing
 tree.queryAll(envs): { ids: Int32Array; offsets: Uint32Array };  // N queries, one crossing;
@@ -250,7 +251,9 @@ tree.dispose();
 ```
 Items are integer ids, 1-based in C (D16); the wrapper holds strong pinned
 references to indexed geometries (D17). Removing an item = rebuild
-(documented).
+(documented). `insertMany` validates every input before the crossing and
+continues the id sequence after prior `insert` calls (ids[i] = size-before
++ i) — all-or-nothing at the JS boundary (D32).
 
 ## Parallel
 

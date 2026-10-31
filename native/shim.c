@@ -188,6 +188,8 @@ typedef int (*GEOSDistanceCallback)(const void *item1, const void *item2, double
                                     void *userdata);
 extern void GEOSSTRtree_query_r(GEOSContextHandle_t handle, GEOSSTRtree *tree,
                                 const GEOSGeometry *g, GEOSQueryCallback callback, void *userdata);
+extern void GEOSSTRtree_insert_r(GEOSContextHandle_t handle, GEOSSTRtree *tree,
+                                 const GEOSGeometry *g, void *item);
 extern const void *GEOSSTRtree_nearest_generic_r(GEOSContextHandle_t handle, GEOSSTRtree *tree,
                                                  const void *item, const GEOSGeometry *itemEnvelope,
                                                  GEOSDistanceCallback distancefn, void *userdata);
@@ -919,6 +921,58 @@ void *geos_shim_strtree_bind_geoms(GeosShim *shim, GEOSGeometry **geoms, unsigne
 void geos_shim_strtree_table_free(void *table) { free(table); }
 
 /*
+ * Batch insert (D18-adjacent): n geometries into the tree in ONE crossing.
+ * Items are 1-BASED and CONTINUE the tree's existing sequence: gs[i] gets
+ * item (start + i + 1), exactly the encoding the TS-side per-item insert
+ * uses (id = item - 1), so a tree built from mixed insert()/insertMany()
+ * calls keeps one sequential id space (D16's NULL-overload story is
+ * unchanged). The JS wrapper validates every input BEFORE this call (same
+ * context, alive, tree not frozen) and syncs its registry only on a 0
+ * return — all-or-nothing at the JS boundary.
+ *
+ * DOCUMENTED D18 DEVIATION (D32): no interrupt checks, no partial teardown.
+ * GEOSSTRtree_insert_r returns void AND never consults the interrupt
+ * callback — verified in the GEOS 3.14 sources: the C API wrapper is
+ * `tree->insert(g->getEnvelopeInternal(), item)` (capi/geos_ts_c.cpp) and
+ * neither src/index/ nor src/geom/ contains an interrupt checkpoint. There
+ * are no C outputs to destroy (items live in the tree), and a mid-loop
+ * abort would leave the C tree holding ids the JS registry never learned
+ * about — unreportable, so the loop simply cannot be interrupted. Inputs
+ * are validated in a pre-pass so a NULL geometry rejects BEFORE anything
+ * inserts (the buffer_all pattern, adapted to a void-op loop).
+ *
+ * Known blind spot (accepted, D32): the void return swallows GEOS-side
+ * exceptions (e.g. bad_alloc while creating a leaf node) — the loop would
+ * report success with fewer leaves indexed — and TemplateSTRtree::insert
+ * silently skips null-envelope items (empty geometries are never indexed).
+ * Both behaviors are byte-identical to the pre-change per-item insert()
+ * path, so nothing regresses; the JS registry and the C tree just share
+ * the blind spot instead of gaining one. If GEOS ever makes the call
+ * observably fallible, revisit per D32.
+ *
+ * Returns 0 ok; 1 on invalid arguments with a captured message.
+ */
+int geos_shim_strtree_insert_all(GeosShim *shim, GEOSSTRtree *tree, GEOSGeometry **gs,
+                                 unsigned int n, size_t startId) {
+  if (!shim || !tree || (!gs && n > 0)) {
+    shim_set_error("strtree_insert_all: invalid arguments (shim=%p tree=%p gs=%p n=%u)",
+                   (void *)shim, (void *)tree, (void *)gs, n);
+    return 1;
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    if (!gs[i]) {
+      shim_set_error("strtree_insert_all: NULL geometry at index %u", i);
+      return 1;
+    }
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    GEOSSTRtree_insert_r(shim->ctx, tree, gs[i],
+                         (void *)(intptr_t)(uintptr_t)(startId + (uintptr_t)i + 1));
+  }
+  return 0;
+}
+
+/*
  * Distance callback for nearest_generic: map item ids back to geometries;
  * the sentinel id (-1) is the query geometry itself; stored items are
  * 1-based, so the table index is (item - 1). GEOSDistance_r failure
@@ -1356,12 +1410,65 @@ int geos_shim_buffer_all(GeosShim *shim, const GEOSBufferParams *params, double 
 }
 
 /*
+ * The linear-only boundary (D31), batch side: curved type names by id,
+ * mirroring CURVED_TYPE_NAMES in src/types.ts (ids 8-12; 3.13+ ISO SQL/MM).
+ */
+static const char *const shim_curved_type_names[13] = {
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    "CircularString", "CompoundCurve", "CurvePolygon", "MultiCurve", "MultiSurface",
+};
+
+/*
+ * Throw-equivalent unless `g` is linear, recursing into collections (a
+ * linear id-7 shell can hide a curve — the reason a top-level check alone
+ * is insufficient). Batch twin of the JS assertLinear (src/io/curves.ts):
+ * one C call per row inside the read loop instead of one FFI crossing per
+ * row (~20k crossings per 20k-row batch — the measured wrapper overhead).
+ * Children are BORROWED views — nothing freed here; the caller owns the
+ * roots. Returns 0 linear; -1 with an error captured (the D31 message via
+ * shim_set_error, or the GEOS message on an accessor failure). Depth guard
+ * mirrors JS MAX_DEPTH (32).
+ */
+static int assert_linear(GeosShim *shim, const GEOSGeometry *g, unsigned int row, int depth) {
+  if (depth > 32) {
+    shim_set_error("read_wkb_many: row %u: geometry nesting exceeds 32 levels", row);
+    return -1;
+  }
+  int typeId = GEOSGeomTypeId_r(shim->ctx, g);
+  if (typeId < 0)
+    return -1; /* GEOS message already captured */
+  if (typeId >= 8 && typeId <= 12) {
+    shim_set_error("read_wkb_many: row %u: %s: curved geometry types are not supported "
+                   "— this library is linear-only (D31)",
+                   row, shim_curved_type_names[typeId]);
+    return -1;
+  }
+  if (typeId == 7) { /* GEOMETRYCOLLECTION: recurse over borrowed children */
+    int n = GEOSGetNumGeometries_r(shim->ctx, g);
+    if (n < 0)
+      return -1;
+    for (int i = 0; i < n; i++) {
+      const GEOSGeometry *child = GEOSGetGeometryN_r(shim->ctx, g, i);
+      if (!child)
+        return -1;
+      if (assert_linear(shim, child, row, depth + 1) != 0)
+        return -1;
+    }
+  }
+  return 0;
+}
+
+/*
  * Batch WKB read (shim.md §2 sketch; io.md §4): n geometries from one
  * buffer, geometry i spanning bytes [byteOffsets[i-1], byteOffsets[i]) —
  * end-indices, element counts in BYTES (the one offset family measured in
  * bytes; everything else in this shim counts elements). The reader is the
  * TS-pooled per-Geos reader. Outputs are new owned geometries;
  * all-or-nothing. u32 offsets cap one buffer at 4 GB — documented.
+ *
+ * D31 rides the same crossing: every parsed row goes through assert_linear
+ * (curved payloads never enter — the reader IS the boundary), so a curved
+ * row rejects the whole batch BEFORE any geometry reaches JS.
  */
 int geos_shim_read_wkb_many(GeosShim *shim, GEOSWKBReader *reader, const unsigned char *buf,
                             const unsigned int *byteOffsets, unsigned int n, GEOSGeometry **out) {
@@ -1388,6 +1495,12 @@ int geos_shim_read_wkb_many(GeosShim *shim, GEOSWKBReader *reader, const unsigne
     out[i] = GEOSWKBReader_read_r(shim->ctx, reader, buf + start, end - start);
     if (!out[i]) {
       destroy_partials(shim, out, i); /* GEOS message already captured */
+      return 1;
+    }
+    /* D31 — the linear-only boundary check rides this crossing. Row i
+     * PARSED but is rejected: the partial destroy is inclusive (i + 1). */
+    if (assert_linear(shim, out[i], i, 0) != 0) {
+      destroy_partials(shim, out, i + 1);
       return 1;
     }
     start = end;
