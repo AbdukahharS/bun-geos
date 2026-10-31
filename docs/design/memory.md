@@ -24,7 +24,7 @@ Therefore: **explicit disposal is the contract; the GC is insurance.**
 | WKT/WKB/GeoJSON output strings | readers/writers | `GEOSFree` — never `free()` (Windows CRT mismatch) | cloned into JS strings/`Uint8Array` at the boundary, C side freed immediately |
 | `GEOSWKTReader/Writer`, `GEOSWKBReader/Writer` | create | matching `*_destroy` | pooled per `Geos`, not per call |
 | `GEOSPreparedGeometry` | `GEOSPrepare` | `GEOSPreparedGeom_destroy` | `Prepared` (`using`-able; holds source alive) |
-| STRtree items | — | **borrowed** — tree takes no ownership | integer ids; `Map<id, Geometry>` in JS |
+| STRtree items | — | **borrowed** — tree takes no ownership | integer ids; `Geometry[]` registry in JS (sequential ids) |
 | Shim-internal buffers | shim | shim (`destroy_many` frees both geoms and the pointer array) | invisible |
 
 Two hard rules enforced at the API layer:

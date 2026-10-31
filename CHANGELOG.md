@@ -7,6 +7,66 @@ version gating.
 Format: Keep a Changelog-ish; semver-ish 0.y.z until the 1.0 gate ([D30](docs/decisions.md)):
 a release carrying a breaking change OR new API bumps `y`; fixes/perf/docs bump `z`.
 
+## 0.3.0 — the crossing-amortized boundary (unreleased)
+
+An additive release (`y` bump for the new API — NOT breaking; the 1.0-gate
+three-month clock is unaffected, D30/D32). The D31 batch check moves into
+the shim crossing and the STRtree gains a batch insert — both moves are
+D31/D32-sanctioned architecture; the measured wins are honest and modest.
+End-to-end before/after medians on the dev machine proved noise-dominated
+(the same harness measured identical code anywhere from 18.5 to 33 ms
+across runs), so the numbers below are component-level isolated
+measurements (same-process, interleaved reps, sync-GC discipline).
+
+**Added:**
+
+- `STRtree.insertMany(geoms): number[]` — the batch twin of `insert`: n
+  geometries in ONE shim crossing (`geos_shim_strtree_insert_all`), ids
+  continuing the tree's sequence (`ids[i] = size-before + i`; mixed
+  `insert`/`insertMany` trees keep one id space). All inputs are validated
+  before the crossing and the registry syncs only on success — all-or-nothing
+  at the JS boundary. The shim function deliberately deviates from the D18
+  0/1/2 machinery (0 ok / 1 invalid-args; no interrupt checks) because
+  `GEOSSTRtree_insert_r` is void AND signal-free — verified in the GEOS 3.14
+  sources; the reasoning, the accepted blind spot (GEOS-side exceptions are
+  swallowed by the void return, exactly as on the per-item path), and the
+  fallback are recorded as **D32** and pinned by selftest scenario 31
+  (identical answers to the per-item build, the id-continuation pin,
+  pre-pass NULL rejection).
+
+**Changed:**
+
+- The D31 linear-only check for `fromWKBMany` moved INTO the shim crossing
+  (`assert_linear` in `geos_shim_read_wkb_many`, per parsed row with
+  collection recursion and the 32-level guard) — the JS per-row `assertLinear`
+  loop paid one `GEOSGeomTypeId_r` crossing per geometry, isolated at
+  **~1.1 ms per 20k-row batch (~55 ns/crossing, measured)** — a few percent
+  at that scale, with the batch now crossing ONCE regardless of row count.
+  The D31 decision anticipated exactly this move; the human message keeps
+  the exact D31 wording plus a `row N:` prefix. TWO observable contract
+  details moved with it (both pinned by tests): the thrown `GeosError`'s
+  `op` for batch curved/nesting failures is now `geos_shim_read_wkb_many`
+  (was `fromWKBMany`) — relevant only to consumers switching on `err.op` —
+  and single `fromWKB`/`fromWKT` reads keep the JS-side check unchanged.
+- The STRtree id→geometry registry is a plain array (ids are sequential by
+  construction, so the `Map` was pure overhead — `Map.set` measured ~12 ms
+  vs ~3 ms for pushes per 100k items, i.e. roughly **~1.5× on 100k-item
+  builds**). This benefits `insert`, `insertMany`, and the
+  `geos.strtree(geoms)` constructor alike; internals only, all behavior
+  contracts (D16 ids, D17 pinning, frozen-at-build) unchanged. Post-change,
+  `insertMany` and the per-item loop measure about equal on a quiet machine —
+  insertMany's value is the single crossing (no per-item JS↔C ping-pong
+  under load), not a quiet-machine speedup.
+
+**Docs & tooling:**
+
+- D32 recorded; api.md documents `insertMany`; the symbol reference carries
+  the new binding (bound as `usize`, matching the codebase's `size_t`
+  convention) and the D31-in-the-crossing note; design docs updated for
+  the array registry. MSVC shim builds now pass `/utf-8` (shim.c carries
+  UTF-8 text in comments and the D31 message — without the flag the Windows
+  error string could drift through the system code page).
+
 ## 0.2.0 — the linear-only boundary + the cross-library benchmark suite
 
 The first post-Phase-5 release: one breaking change and one new API (a `y` bump per D30).

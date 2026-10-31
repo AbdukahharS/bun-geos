@@ -82,7 +82,8 @@ GeoJSON (JS-side conversion), WKB (native readers/writers + batch variants), Geo
 (near zero-copy), WKT. Flat `Float64Array` + offsets is the canonical currency (D9).
 
 ### STRtree wrapper
-JS-side `Map<id, Geometry>` registry; the tree stores integer ids as `void*` items
+JS-side `Geometry[]` registry (ids are sequential by construction, so the array IS the
+id→geometry map); the tree stores integer ids as `void*` items
 (borrowed-pointer rule from [GEOS research §4](../research/geos.md)). Query results
 collected by the shim into a preallocated array → returned as `Int32Array`.
 

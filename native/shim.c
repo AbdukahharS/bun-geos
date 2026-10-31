@@ -188,6 +188,8 @@ typedef int (*GEOSDistanceCallback)(const void *item1, const void *item2, double
                                     void *userdata);
 extern void GEOSSTRtree_query_r(GEOSContextHandle_t handle, GEOSSTRtree *tree,
                                 const GEOSGeometry *g, GEOSQueryCallback callback, void *userdata);
+extern void GEOSSTRtree_insert_r(GEOSContextHandle_t handle, GEOSSTRtree *tree,
+                                 const GEOSGeometry *g, void *item);
 extern const void *GEOSSTRtree_nearest_generic_r(GEOSContextHandle_t handle, GEOSSTRtree *tree,
                                                  const void *item, const GEOSGeometry *itemEnvelope,
                                                  GEOSDistanceCallback distancefn, void *userdata);
@@ -917,6 +919,58 @@ void *geos_shim_strtree_bind_geoms(GeosShim *shim, GEOSGeometry **geoms, unsigne
 }
 
 void geos_shim_strtree_table_free(void *table) { free(table); }
+
+/*
+ * Batch insert (D18-adjacent): n geometries into the tree in ONE crossing.
+ * Items are 1-BASED and CONTINUE the tree's existing sequence: gs[i] gets
+ * item (start + i + 1), exactly the encoding the TS-side per-item insert
+ * uses (id = item - 1), so a tree built from mixed insert()/insertMany()
+ * calls keeps one sequential id space (D16's NULL-overload story is
+ * unchanged). The JS wrapper validates every input BEFORE this call (same
+ * context, alive, tree not frozen) and syncs its registry only on a 0
+ * return — all-or-nothing at the JS boundary.
+ *
+ * DOCUMENTED D18 DEVIATION (D32): no interrupt checks, no partial teardown.
+ * GEOSSTRtree_insert_r returns void AND never consults the interrupt
+ * callback — verified in the GEOS 3.14 sources: the C API wrapper is
+ * `tree->insert(g->getEnvelopeInternal(), item)` (capi/geos_ts_c.cpp) and
+ * neither src/index/ nor src/geom/ contains an interrupt checkpoint. There
+ * are no C outputs to destroy (items live in the tree), and a mid-loop
+ * abort would leave the C tree holding ids the JS registry never learned
+ * about — unreportable, so the loop simply cannot be interrupted. Inputs
+ * are validated in a pre-pass so a NULL geometry rejects BEFORE anything
+ * inserts (the buffer_all pattern, adapted to a void-op loop).
+ *
+ * Known blind spot (accepted, D32): the void return swallows GEOS-side
+ * exceptions (e.g. bad_alloc while creating a leaf node) — the loop would
+ * report success with fewer leaves indexed — and TemplateSTRtree::insert
+ * silently skips null-envelope items (empty geometries are never indexed).
+ * Both behaviors are byte-identical to the pre-change per-item insert()
+ * path, so nothing regresses; the JS registry and the C tree just share
+ * the blind spot instead of gaining one. If GEOS ever makes the call
+ * observably fallible, revisit per D32.
+ *
+ * Returns 0 ok; 1 on invalid arguments with a captured message.
+ */
+int geos_shim_strtree_insert_all(GeosShim *shim, GEOSSTRtree *tree, GEOSGeometry **gs,
+                                 unsigned int n, size_t startId) {
+  if (!shim || !tree || (!gs && n > 0)) {
+    shim_set_error("strtree_insert_all: invalid arguments (shim=%p tree=%p gs=%p n=%u)",
+                   (void *)shim, (void *)tree, (void *)gs, n);
+    return 1;
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    if (!gs[i]) {
+      shim_set_error("strtree_insert_all: NULL geometry at index %u", i);
+      return 1;
+    }
+  }
+  for (unsigned int i = 0; i < n; i++) {
+    GEOSSTRtree_insert_r(shim->ctx, tree, gs[i],
+                         (void *)(intptr_t)(uintptr_t)(startId + (uintptr_t)i + 1));
+  }
+  return 0;
+}
 
 /*
  * Distance callback for nearest_generic: map item ids back to geometries;

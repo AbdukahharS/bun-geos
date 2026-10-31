@@ -791,6 +791,50 @@ until then, "not supported" is the honest, loud answer.
 
 ---
 
+## D32 — `strtree_insert_all`: the void-op batch deviates from the D18 0/1/2 machinery
+
+**Context.** The STRtree batch insert (`geos_shim_strtree_insert_all`,
+0.3.0) closes the same crossing-amortization gap the D18 batch layer
+closed for ops — 100k per-item `GEOSSTRtree_insert_r` crossings dominated
+the index-build bench. But `GEOSSTRtree_insert_r` does not look like a
+D18 op: it returns `void` (no observable failure mode — GEOS-side
+exceptions are swallowed by the `void` return) and never consults the
+interrupt callback — verified in the GEOS 3.14 sources (the C API wrapper
+is `tree->insert(g->getEnvelopeInternal(), item)`,
+capi/geos_ts_c.cpp; neither `src/index/` nor `src/geom/` contains an
+interrupt checkpoint). The D18 contract's failure paths (1 exception /
+2 interrupted, `destroy_partials`, interrupt checks between items) have
+nothing to act on, and a mid-loop abort would be UNREPORTABLE anyway:
+items already inserted live in the C tree, so the JS registry could never
+re-sync with a partially-inserted batch.
+
+**Decision.** `geos_shim_strtree_insert_all` deviates from D18
+deliberately and narrowly: it returns 0 ok / 1 invalid-args only, takes a
+`startId` so the batch CONTINUES the tree's existing 1-based id sequence
+(mixed `insert()`/`insertMany()` trees keep one id space; the D16
+NULL-overload encoding is untouched), and has no interrupt handling.
+All-or-nothing is preserved at the JS boundary instead of the C one: the
+wrapper validates every input (`geomPtrArray`'s per-element context +
+liveness checks) and syncs its registry only on a 0 return; the shim
+NULL-checks inputs in a pre-pass so nothing inserts on a rejected batch.
+
+**Consequences.** The batch insert is uninterruptible for its (short)
+duration — acceptable because the underlying per-item call is signal-free
+and the wrapper pre-validates. One blind spot is accepted rather than
+solved: the `void` return swallows GEOS-side exceptions (e.g. bad_alloc
+while creating a leaf node) and `TemplateSTRtree::insert` silently skips
+null-envelope items (empty geometries) — both byte-identical to the
+pre-change per-item `insert()` path, so the registry and the C tree share
+the existing blind spot instead of gaining one. If a future GEOS made
+`GEOSSTRtree_insert_r` signal-taking or observably fallible, this decision
+must be revisited (the fallback — full 0/1/2 with the wrapper abandoning
+the tree on 2 — is sketched in the shim comment). The same void-op
+reasoning was already recorded for D31's C-side move: the batch linear
+check folds INTO `geos_shim_read_wkb_many`'s existing D18 loop rather than
+adding a crossing family of its own.
+
+---
+
 ## Open design work (tracked, not yet decided in detail)
 
 1. ~~Worker ownership rules — `parallel()` chunking semantics, AbortSignal

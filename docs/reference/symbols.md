@@ -8,7 +8,7 @@
 > grid fractions, strtree nearest) are NOT masked; failed `ptr` returns are JS
 > `null`, never `0`.
 
-## Shim exports (35)
+## Shim exports (36)
 
 | symbol | args | returns | notes |
 |--------|------|---------|-------|
@@ -32,6 +32,7 @@
 | `geos_shim_prepared_relate_pattern_all` | ptr, ptr, ptr, u32, cstring, ptr | i32 |  |
 | `geos_shim_strtree_query` | ptr, ptr, ptr, ptr, u32 | i32 | 1-based id items (D16); nearest via bound id→geom table |
 | `geos_shim_strtree_query_all` | ptr, ptr, ptr, u32, ptr, ptr, u32 | i32 | 1-based id items (D16); nearest via bound id→geom table |
+| `geos_shim_strtree_insert_all` | ptr, ptr, ptr, u32, usize | i32 | batch insert, 0 ok / 1 invalid-args; continues the id sequence (D32) |
 | `geos_shim_strtree_bind_geoms` | ptr, ptr, u32 | ptr | 1-based id items (D16); nearest via bound id→geom table |
 | `geos_shim_strtree_table_free` | ptr | void | 1-based id items (D16); nearest via bound id→geom table |
 | `geos_shim_strtree_nearest` | ptr, ptr, ptr, ptr | i32 | 1-based id items (D16); nearest via bound id→geom table |

@@ -896,9 +896,11 @@ export class Geos implements Disposable {
     if (geoms !== undefined) {
       // A mid-loop throw (foreign context, disposed geometry) must not leave
       // an unreachable tree holding unreleasable pins — dispose it first
-      // (audited leak; consumables have no finalizer backstop).
+      // (audited leak; consumables have no finalizer backstop). insertMany
+      // validates every input BEFORE the crossing, so the throw (when it
+      // happens at all) fires before any pin is taken.
       try {
-        for (const g of geoms) tree.insert(g);
+        tree.insertMany(geoms);
       } catch (err) {
         tree.dispose();
         throw err;
