@@ -1356,12 +1356,65 @@ int geos_shim_buffer_all(GeosShim *shim, const GEOSBufferParams *params, double 
 }
 
 /*
+ * The linear-only boundary (D31), batch side: curved type names by id,
+ * mirroring CURVED_TYPE_NAMES in src/types.ts (ids 8-12; 3.13+ ISO SQL/MM).
+ */
+static const char *const shim_curved_type_names[13] = {
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    "CircularString", "CompoundCurve", "CurvePolygon", "MultiCurve", "MultiSurface",
+};
+
+/*
+ * Throw-equivalent unless `g` is linear, recursing into collections (a
+ * linear id-7 shell can hide a curve — the reason a top-level check alone
+ * is insufficient). Batch twin of the JS assertLinear (src/io/curves.ts):
+ * one C call per row inside the read loop instead of one FFI crossing per
+ * row (~20k crossings per 20k-row batch — the measured wrapper overhead).
+ * Children are BORROWED views — nothing freed here; the caller owns the
+ * roots. Returns 0 linear; -1 with an error captured (the D31 message via
+ * shim_set_error, or the GEOS message on an accessor failure). Depth guard
+ * mirrors JS MAX_DEPTH (32).
+ */
+static int assert_linear(GeosShim *shim, const GEOSGeometry *g, unsigned int row, int depth) {
+  if (depth > 32) {
+    shim_set_error("read_wkb_many: row %u: geometry nesting exceeds 32 levels", row);
+    return -1;
+  }
+  int typeId = GEOSGeomTypeId_r(shim->ctx, g);
+  if (typeId < 0)
+    return -1; /* GEOS message already captured */
+  if (typeId >= 8 && typeId <= 12) {
+    shim_set_error("read_wkb_many: row %u: %s: curved geometry types are not supported "
+                   "— this library is linear-only (D31)",
+                   row, shim_curved_type_names[typeId]);
+    return -1;
+  }
+  if (typeId == 7) { /* GEOMETRYCOLLECTION: recurse over borrowed children */
+    int n = GEOSGetNumGeometries_r(shim->ctx, g);
+    if (n < 0)
+      return -1;
+    for (int i = 0; i < n; i++) {
+      const GEOSGeometry *child = GEOSGetGeometryN_r(shim->ctx, g, i);
+      if (!child)
+        return -1;
+      if (assert_linear(shim, child, row, depth + 1) != 0)
+        return -1;
+    }
+  }
+  return 0;
+}
+
+/*
  * Batch WKB read (shim.md §2 sketch; io.md §4): n geometries from one
  * buffer, geometry i spanning bytes [byteOffsets[i-1], byteOffsets[i]) —
  * end-indices, element counts in BYTES (the one offset family measured in
  * bytes; everything else in this shim counts elements). The reader is the
  * TS-pooled per-Geos reader. Outputs are new owned geometries;
  * all-or-nothing. u32 offsets cap one buffer at 4 GB — documented.
+ *
+ * D31 rides the same crossing: every parsed row goes through assert_linear
+ * (curved payloads never enter — the reader IS the boundary), so a curved
+ * row rejects the whole batch BEFORE any geometry reaches JS.
  */
 int geos_shim_read_wkb_many(GeosShim *shim, GEOSWKBReader *reader, const unsigned char *buf,
                             const unsigned int *byteOffsets, unsigned int n, GEOSGeometry **out) {
@@ -1388,6 +1441,12 @@ int geos_shim_read_wkb_many(GeosShim *shim, GEOSWKBReader *reader, const unsigne
     out[i] = GEOSWKBReader_read_r(shim->ctx, reader, buf + start, end - start);
     if (!out[i]) {
       destroy_partials(shim, out, i); /* GEOS message already captured */
+      return 1;
+    }
+    /* D31 — the linear-only boundary check rides this crossing. Row i
+     * PARSED but is rejected: the partial destroy is inclusive (i + 1). */
+    if (assert_linear(shim, out[i], i, 0) != 0) {
+      destroy_partials(shim, out, i + 1);
       return 1;
     }
     start = end;

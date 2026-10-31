@@ -8,7 +8,7 @@
 > grid fractions, strtree nearest) are NOT masked; failed `ptr` returns are JS
 > `null`, never `0`.
 
-## Shim exports (34)
+## Shim exports (35)
 
 | symbol | args | returns | notes |
 |--------|------|---------|-------|
@@ -31,6 +31,7 @@
 | `geos_shim_prepared_pred_all` | ptr, ptr, i32, ptr, u32, ptr | i32 | batch masks, 0 ok / 1 exception / 2 interrupted (D18) |
 | `geos_shim_prepared_relate_pattern_all` | ptr, ptr, ptr, u32, cstring, ptr | i32 |  |
 | `geos_shim_strtree_query` | ptr, ptr, ptr, ptr, u32 | i32 | 1-based id items (D16); nearest via bound id→geom table |
+| `geos_shim_strtree_query_all` | ptr, ptr, ptr, u32, ptr, ptr, u32 | i32 | 1-based id items (D16); nearest via bound id→geom table |
 | `geos_shim_strtree_bind_geoms` | ptr, ptr, u32 | ptr | 1-based id items (D16); nearest via bound id→geom table |
 | `geos_shim_strtree_table_free` | ptr | void | 1-based id items (D16); nearest via bound id→geom table |
 | `geos_shim_strtree_nearest` | ptr, ptr, ptr, ptr | i32 | 1-based id items (D16); nearest via bound id→geom table |
@@ -40,7 +41,7 @@
 | `geos_shim_binary_all` | ptr, i32, ptr, ptr, u32, f64, ptr | i32 | 2-op id table (D27); d1 = snap tolerance |
 | `geos_shim_measure_all` | ptr, i32, ptr, ptr, u32, ptr | i32 | 5-op id table (D22) |
 | `geos_shim_buffer_all` | ptr, ptr, f64, ptr, u32, ptr | i32 | caller-built params (D22) |
-| `geos_shim_read_wkb_many` | ptr, ptr, ptr, ptr, u32, ptr | i32 | byte offsets (the one byte-offset family); u32 caps at 4 GB |
+| `geos_shim_read_wkb_many` | ptr, ptr, ptr, ptr, u32, ptr | i32 | byte offsets (the one byte-offset family); u32 caps at 4 GB; D31 linear check rides the crossing |
 | `geos_shim_num_points_many` | ptr, ptr, u32, ptr | i32 | type-generic vertex counts (D23 chunking) |
 | `geos_shim_heap_bytes` | ptr, ptr, u32, ptr | i32 | D24 accounting |
 | `geos_shim_build_polygonal_many` | ptr, ptr, ptr, u32, ptr, u32, i32, i32, ptr | i32 | batch/loop builders; GEOS consumes inputs even on failure |

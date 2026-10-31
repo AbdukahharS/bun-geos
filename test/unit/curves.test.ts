@@ -60,6 +60,21 @@ function collectionWithCurveWkb(): Uint8Array {
   return new Wkb(66).u8(1).u32(7).u32(1).u8(1).u32(8).u32(3).pt(0, 0).pt(1, 1).pt(2, 0).done();
 }
 
+/** k nested GEOMETRYCOLLECTIONs around POINT(1 2) — each level adds 9 bytes. */
+function nestedCollectionWkb(levels: number): Uint8Array {
+  const w = new Wkb(21 + levels * 9);
+  const build = (lvl: number): void => {
+    if (lvl === 0) {
+      w.u8(1).u32(1).pt(1, 2); // POINT(1 2)
+      return;
+    }
+    w.u8(1).u32(7).u32(1);
+    build(lvl - 1);
+  };
+  build(levels);
+  return w.done();
+}
+
 /** MULTICURVE(CIRCULARSTRING(...)) — curved collection, id 11. */
 function multiCurveWkb(): Uint8Array {
   return new Wkb(66).u8(1).u32(11).u32(1).u8(1).u32(8).u32(3).pt(0, 0).pt(1, 1).pt(2, 0).done();
@@ -115,6 +130,49 @@ describe("D31 — curved types are rejected at the reader boundary", () => {
     const offsets = new Uint32Array([p.length, 2 * p.length, buf.length]);
     expect(() => geos.fromWKBMany(buf, offsets)).toThrow(GeosError);
     expect(() => geos.fromWKBMany(buf, offsets)).toThrow(/CircularString:/);
+  });
+
+  it("fromWKBMany's rejection happens in the crossing: the row index rides the message", () => {
+    using geos = new Geos();
+    const p = pointWkb();
+    const buf = concat(p, circularStringWkb());
+    const offsets = new Uint32Array([p.length, buf.length]);
+    // The check runs shim-side (one crossing, no per-row JS); the message
+    // names the offending row and keeps the D31 wording byte-identical.
+    expect(() => geos.fromWKBMany(buf, offsets)).toThrow(
+      /^GEOS geos_shim_read_wkb_many failed: read_wkb_many: row 1: CircularString: curved geometry types are not supported — this library is linear-only \(D31\)$/,
+    );
+  });
+
+  it("fromWKBMany rejects a collection-hidden curve (the shim recursion path)", () => {
+    using geos = new Geos();
+    const buf = collectionWithCurveWkb();
+    const offsets = new Uint32Array([buf.length]);
+    expect(() => geos.fromWKBMany(buf, offsets)).toThrow(GeosError);
+    expect(() => geos.fromWKBMany(buf, offsets)).toThrow(/CircularString:/);
+  });
+
+  it("fromWKBMany's shim-side nesting guard has depth parity with the single reader", () => {
+    using geos = new Geos();
+    // 12 levels: well inside the 32-level guard — parses through the batch.
+    const ok = nestedCollectionWkb(12);
+    const [g] = geos.fromWKBMany(ok, new Uint32Array([ok.length]));
+    expect(geos.geomType(g!)).toBe("GeometryCollection");
+    // 40 levels: the C-side guard (assert_linear) trips before GEOS's own
+    // limits — the batch path pins the same >32 contract as the JS reader.
+    const deep = nestedCollectionWkb(40);
+    expect(() => geos.fromWKBMany(deep, new Uint32Array([deep.length]))).toThrow(
+      /nesting exceeds 32 levels/,
+    );
+  });
+
+  it("a rejected batch read leaves the instance usable", () => {
+    using geos = new Geos();
+    const p = pointWkb();
+    const buf = concat(p, circularStringWkb());
+    expect(() => geos.fromWKBMany(buf, new Uint32Array([p.length, buf.length]))).toThrow(GeosError);
+    const [g] = geos.fromWKBMany(buf, new Uint32Array([p.length]));
+    expect(geos.geomType(g!)).toBe("Point");
   });
 
   it("a rejected read leaves the instance usable", () => {

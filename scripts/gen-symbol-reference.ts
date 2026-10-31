@@ -42,7 +42,7 @@ const RULES: Array<{ match: RegExp; note: string }> = [
   { match: /^geos_shim_buffer_all/, note: "caller-built params (D22)" },
   {
     match: /^geos_shim_read_wkb_many/,
-    note: "byte offsets (the one byte-offset family); u32 caps at 4 GB",
+    note: "byte offsets (the one byte-offset family); u32 caps at 4 GB; D31 linear check rides the crossing",
   },
   { match: /^geos_shim_num_points_many/, note: "type-generic vertex counts (D23 chunking)" },
   { match: /^geos_shim_heap_bytes/, note: "D24 accounting" },

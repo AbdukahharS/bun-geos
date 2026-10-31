@@ -865,6 +865,67 @@ int main(void) {
                            6);
   }
 
+  /* 32. read_wkb_many + D31: curved rows reject the batch IN the crossing
+   * (assert_linear) — a top-level curve, a curve hidden in a linear id-7
+   * shell (the recursion path), and the all-or-nothing contract (the parsed
+   * row is destroyed with the partials; ASan/Valgrind watch this). */
+  {
+    /* CIRCULARSTRING(0 0, 1 1, 2 0), little-endian ISO WKB: order(1) +
+     * type(4)=8 + nPoints(4)=3 + 3 points × 16 = 57 bytes. */
+    unsigned char cs[57] = {
+        0x01, 0x08, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,
+        /* (0 0) */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* x */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* y */
+        /* (1 1) */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F, /* x */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F, /* y */
+        /* (2 0) */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, /* x */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* y */
+    };
+    /* GEOMETRYCOLLECTION(CIRCULARSTRING(...)) — 9 + 57 = 66 bytes. */
+    unsigned char coll[66];
+    memcpy(coll, (unsigned char[9]){0x01, 0x07, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00}, 9);
+    memcpy(coll + 9, cs, 57);
+    /* POINT(5 5) — 21 bytes. */
+    unsigned char pt5[21] = {
+        0x01, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x40, /* x = 5.0 */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x14, 0x40, /* y = 5.0 */
+    };
+    void *reader = GEOSWKBReader_create_r(ctx);
+    CHECK(reader != NULL, "wkb reader fixture (32)");
+    /* mixed batch, curved row at index 1: row 0 PARSED — the reject must
+     * destroy BOTH rows (rdA stays NULL; ASan/Valgrind verify). */
+    unsigned char bufA[78];
+    memcpy(bufA, pt5, 21);
+    memcpy(bufA + 21, cs, 57);
+    unsigned int offsA[2] = {21, 78};
+    void *rdA[2] = {0};
+    int rA = geos_shim_read_wkb_many(s, reader, bufA, offsA, 2, rdA);
+    const char *m32 = geos_shim_last_error(s); /* consume-on-read: ONCE */
+    CHECK(rA == 1 && m32 != NULL, "read_wkb_many rejects a curved row mid-batch");
+    CHECK(m32 != NULL && strstr(m32, "CircularString") != NULL &&
+              strstr(m32, "linear-only") != NULL,
+          "curved rejection names the type and D31");
+    fprintf(stderr, "  (row 1: %s)\n", m32 ? m32 : "(null)");
+    /* curve hidden in a GEOMETRYCOLLECTION — the recursion path. */
+    unsigned int offsB[1] = {66};
+    void *rdB[1] = {0};
+    int rB = geos_shim_read_wkb_many(s, reader, coll, offsB, 1, rdB);
+    const char *mB = geos_shim_last_error(s); /* consume-on-read: ONCE */
+    CHECK(rB == 1 && mB != NULL && strstr(mB, "CircularString") != NULL,
+          "read_wkb_many rejects a collection-hidden curve (recursion)");
+    /* the reader itself is untouched — a clean batch still works after. */
+    unsigned int offsC[1] = {21};
+    void *rdC[1] = {0};
+    CHECK(geos_shim_read_wkb_many(s, reader, pt5, offsC, 1, rdC) == 0,
+          "reader stays usable after curved rejections");
+    geos_shim_destroy_many(s, rdC, 1);
+    GEOSWKBReader_destroy_r(ctx, reader);
+  }
+
   geos_shim_finish(s);
   if (failures == 0) {
     fprintf(stderr, "shim_selftest: ALL CLEAN\n");
