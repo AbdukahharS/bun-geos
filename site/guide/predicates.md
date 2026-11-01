@@ -108,6 +108,9 @@ const { ids, offsets } = tree.queryAll(envelopes); // query i owns ids[offsets[i
 - `queryAll(envs)` runs N envelope queries in one crossing and returns the flat
   candidate ids plus cumulative `Uint32Array` offsets — slice `ids` per query instead
   of looping `query` in JS.
+- `insertMany(gs)` is the batch twin of `insert`: n geometries in one crossing, with
+  ids continuing `insert`'s sequence — all-or-nothing (every input is validated
+  before anything is inserted).
 - `queryFilter(env, prepared, pred)` pushes the exact predicate into the C callback:
   one crossing that returns only the ids that pass, when you'd otherwise loop in JS.
 - `nearest` walks a C distance table — correct nearest-neighbor, no JS loop.

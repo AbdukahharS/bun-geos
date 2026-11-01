@@ -24,7 +24,7 @@
     "release:dry-run": "bun run scripts/release-dry-run.ts",
     "install:overlay": "bun run scripts/install-overlay.ts",
     "docs:reference": "bun run scripts/gen-symbol-reference.ts",
-    "docs:site": "bun run scripts/docs-site-prepare.ts",
+    "docs:site": "bun run scripts/site-sync.ts",
     "bench": "bun bench/run.ts",
     "bench:check": "bun bench/check.ts",
     "bench:parallel": "bun bench/parallel.ts",

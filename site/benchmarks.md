@@ -84,8 +84,8 @@ workload can differ between halves by run-to-run noise.
 - geos-wasm's STRtree query binding is unusable at this size (a WASM callback
   signature mismatch) — recorded in the suite's failures ledger.
 - without the index, a naive per-query JS scan on the same workload takes 546.0 ms
-  (*internal half* — ~90× the indexed query). bun-geos' 3.6 is `queryAll`, batching
-  all 1000 queries into one crossing.
+  (*internal half* — 546.0 vs the indexed 6.0 is ~90×; the 3.6 shown above is
+  bun-geos' `queryAll`, batching all 1000 queries into one crossing).
 
 ### WKB ingest — 20k polygons
 
@@ -164,8 +164,9 @@ bun run bench:check              # regression alerts against the committed basel
 ```
 
 The unabridged tables — every size, every variant, the failures-and-skips ledger —
-live in [docs/benchmarks.md](docs/benchmarks.md) in the repository; the scenarios
-themselves are in [bench/](bench).
+live in [docs/benchmarks.md](https://github.com/AbdukahharS/bun-geos/blob/main/docs/benchmarks.md)
+in the repository; the scenarios themselves are in
+[bench/](https://github.com/AbdukahharS/bun-geos/tree/main/bench).
 
 ## Where to next
 

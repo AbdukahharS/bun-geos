@@ -15,7 +15,7 @@ inside PostGIS — for complex overlays, topology repair, and boolean operations
 
 > [!NOTE]
 > **Status: 0.2.0 — post-Phase-5, declared linear-only (D31).** The complete api-surface target is
-> implemented and gated: 268 tests, an 8,753-op GEOS/JTS corpus differential gate,
+> implemented and gated: 281 tests, an 8,753-op GEOS/JTS corpus differential gate,
 > ASan+Valgrind shim gates, GeoArrow golden-byte conformance, PostGIS oracle.
 > See the [roadmap](docs/ROADMAP.md) for phase status and the
 > [API reference](docs/reference/api.md) for the full documented surface.
@@ -94,8 +94,8 @@ Every op ships a plural form that is *not* a JS loop over the singular — masks
 mirror (`geos.parallel.*`) with chunking, `AbortSignal` support, and WKB transfer.
 
 Measured honestly on Bun 1.4.3 ([docs/benchmarks.md](docs/benchmarks.md)): prepared predicate
-scans **32×** vs unprepared; STRtree queries **122×** vs a naive JS scan; WKB read-many
-**12.5×**; `parallel makeValid` at 10⁵ geometries **~4–5×** over per-object calls.
+scans **33×** vs unprepared; STRtree queries **90×** vs a naive JS scan; WKB read-many
+**19.6×**; `parallel makeValid` at 10⁵ geometries **~3.7–5× across runs** over per-object calls.
 
 ## Documentation
 
@@ -106,7 +106,7 @@ scans **32×** vs unprepared; STRtree queries **122×** vs a naive JS scan; WKB 
 | [Workers & parallelism](docs/guide/workers-and-parallelism.md) | thread rules, `geos.parallel`, cancellation |
 | [API reference](docs/reference/api.md) | every public export — signatures, disposal, errors |
 | [Symbol reference](docs/reference/symbols.md) | the JS ↔ `geos_c` mapping, generated from the source |
-| [`docs/decisions.md`](docs/decisions.md) | the decision record (D1–D30) — every architectural choice and why |
+| [`docs/decisions.md`](docs/decisions.md) | the decision record (D1–D32) — every architectural choice and why |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | phase status & the 1.0 gate |
 | [`docs/operations/`](docs/operations/) | packaging & release, licensing, testing |
 

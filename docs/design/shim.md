@@ -45,6 +45,13 @@
 > 1 exception / 2 interrupted; partial outputs destroyed before returning —
 > the shared `destroy_partials` helper) and is pinned by selftest scenarios
 > 20–28 under ASan/UBSan/LSan. ~1200 lines total.
+>
+> **0.3.0 status (Oct 2026):** two additions — `geos_shim_strtree_insert_all`
+> (the STRtree batch insert, one crossing; deliberately outside the D18
+> 0/1/2 machinery because `GEOSSTRtree_insert_r` is void AND signal-free —
+> D32, selftest scenario 31) and the D31 linear-only check moved INTO
+> `geos_shim_read_wkb_many` (`assert_linear` per parsed row, with collection
+> recursion and the 32-level nesting guard). ~1.8k lines total.
 
 ## 1. Why a shim is mandatory (not an optimization)
 

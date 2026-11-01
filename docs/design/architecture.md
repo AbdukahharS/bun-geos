@@ -25,7 +25,7 @@ user code (TypeScript)
    └── parallel/          pool.ts · protocol.ts · worker.ts (worker-pool batch helper)
         │  bun:ffi — numbers, Float64Array, one crossing per geometry/array
         ▼
-shim.so|dylib|dll        (~300 lines C: handlers, batch builders, strtree
+shim.so|dylib|dll        (~1.8k lines C: handlers, batch builders, strtree
         │                 collection, destroy_many, interrupt flag)
         ▼
 libgeos_c → GEOS 3.14    (the C++ engine, untouched)
@@ -127,10 +127,12 @@ bun-geos/
 ├── packages/               # generated per release (see packaging doc)
 │   └── bun-geos-<platform>/…
 ├── test/
-│   ├── unit/ · differential/ · properties/ · bench/
+│   ├── unit/ · properties/ · soak/ · differential/
+│   └── native/              # the C selftest (ASan/UBSan gate)
+├── bench/                   # the published benchmark suite + regression check
 └── docs/                   # this documentation
 ```
 
-(`AGENTS.md` currently describes the pre-implementation single-file scaffold; the layout
-above is what Phase 1 creates. Toolchain rules in `AGENTS.md` — Bun-only, `bun check`,
+(`AGENTS.md` is the maintained map of this layout; the sketch above is the
+Phase-5-era view. Toolchain rules in `AGENTS.md` — Bun-only, `bun check`,
 `.ts` import extensions, `verbatimModuleSyntax` — all continue to apply.)

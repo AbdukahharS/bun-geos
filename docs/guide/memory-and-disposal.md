@@ -30,8 +30,8 @@ rather than corrupting memory.
 
 ```ts
 using arena = geos.arena();
-for (const w of tenThousandWkts) {
-  const g = arena.read(wkb);          // registered, NOT individually freed
+for (const wkb of tenThousandWkbs) {
+  const g = geos.fromWKB(wkb);        // registers with the open arena
   results.push(geos.area(g));
 }                                     // one FFI crossing frees all 10k
 ```
@@ -44,7 +44,7 @@ pinned geometry while its consumer lives throws.
 ## Watching the invisible heap
 
 ```ts
-geos.stats;             // { liveGeoms, heapBytesApprox, finalizerReaps, peakLiveGeoms, arenaHighWater, ... }
+geos.stats;             // { liveGeoms, heapBytesApprox, finalized, peakLiveGeoms, arenaHighWater, ... }
 geos.statsPrecise();    // one shim crossing over live pointers: 64 B + vertices × dims × 8 each
 ```
 
@@ -57,7 +57,7 @@ are leaking geometries: look for a loop that dropped its `using`.
 A registry reaps geometries you *forgot* to dispose, when the GC eventually collects the
 wrapper. It is a **leak net, not a strategy**: collection timing is unspecified, and at process
 teardown orphans are reported, not freed (FFI calls during exit are unsafe). If you ever see
-`finalizerReaps` move, fix the disposal bug — don't rely on it.
+`finalized` move, fix the disposal bug — don't rely on it.
 
 **Arena-owned geometries skip the registry.** When an output is born inside an explicit
 arena, the arena's bulk `destroy_many` *is* the backstop, so the per-geometry registry

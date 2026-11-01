@@ -18,9 +18,9 @@ Geos (context A)                        Geos (context B)   ← GEOS_init_r per t
 geometry work A                         geometry work B
 ```
 
-- **One `Geos` context per thread**, matching GEOS's reentrant design (D3). The main
-  thread's instance is the default export's singleton; each Worker that imports the
-  package lazily creates its own.
+- **One `Geos` context per thread**, matching GEOS's reentrant design (D3). Each thread
+  constructs its own `new Geos()` — there is no global singleton; a Worker that imports
+  the package creates its own context.
 - **Preload rule:** the loader runs on the main thread before any Worker is spawned
   (documented + enforced by a helpful error if a Worker is the first loader and #40972
   still reproduces). This removes the concurrent-`dlopen` race class entirely.

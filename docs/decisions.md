@@ -273,9 +273,10 @@ the pins. `GEOSSTRtree_remove_r`/`iterate_r` stay unbound (not in the API
 surface).
 
 **Consequences.** `query()` returns `Int32Array` ids with zero JS
-post-processing; `nearest()` is one crossing. Benchmark: 122× over a naive JS
-envelope scan (100k items × 1k queries). Removing an item requires a rebuild
-(documented).
+post-processing; `nearest()` is one crossing. Benchmark: 90× over a naive JS
+envelope scan (100k items × 1k queries) in the committed baseline — recorded
+122× at decision time, pre-baseline-refresh; `bench/results.json` is the live
+number. Removing an item requires a rebuild (documented).
 
 ## D17 — Consumer pins: Prepared/STRtree take ownership-grade references
 
@@ -362,8 +363,9 @@ direct. Raw `geos.coverageUnion()` skips validation — documented
 caller-asserts fast path.
 
 **Consequences.** Two crossings regardless of input size (architecture.md §4).
-On a 961-tile aligned coverage: coverage 4.0ms vs unary 9.3ms (GEOS's own
-scaling; the gap widens with n). The ladder is in `bench/results.json`.
+On a 961-tile aligned coverage: coverage 4.1ms vs unary 9.8ms in the
+committed baseline (4.0/9.3 at decision time; GEOS's own scaling — the gap
+widens with n). The ladder is in `bench/results.json`.
 
 ## D21 — Coverage ops: `Geometry[]` in via shim clone-collect; owned clones out; diagnostics are strings
 
@@ -431,7 +433,7 @@ batch paths converge toward GEOS's own per-item cost: ~1× on overlay workloads
 (GEOS-bound; wrapper construction remains in both paths), 0.8–1.2× on
 masks/measures (the singular path is already near-optimal). The batch layer's
 measured ≥5× axis is the **worker pool** (D23): `parallel makeValid` at 10⁵
-geometries measures ~3.9–5× over per-object calls across runs (best-of-3;
+geometries measures ~3.7–5× over per-object calls across runs (best-of-3;
 concurrency 12 + chunkFactor 3) — the ratio is bounded by main-thread WKB
 serialization of the inputs, which pipelining reduces but cannot eliminate;
 per-workload numbers live in `bench/results.json` + `docs/benchmarks.md`. The
@@ -679,6 +681,32 @@ null-bearing columns ingest with explicit null semantics; the
 `geoarrow.*` extension-name mapping is documented (io.md §5) and pinned by
 bytes, not prose. Cost: `toArrow` output is a breaking shape change
 (tagged) — acceptable at 0.1.0, legacy input stays accepted.
+
+---
+
+## D29 — the XML corpus gate is permanent; skips are enumerated, never silent
+
+**Context.** Phase 2 built its validity gate over the GEOS/JTS `xmltester`
+corpus, and Phase 5 made the whole corpus the permanent differential gate:
+8,753 ops across the general/robust/validate/issue files on every PR,
+resolved from the pinned tarball extraction when `vendor/` is absent and
+hard-failing under CI when missing. Hand-rolled fixtures rot; the shared
+JTS/GEOS corpus is maintained upstream, and emulating XMLTester's exact
+comparison semantics (read-time snapping, normalize + compareTo, wildcard
+relate, `*SR` precision) keeps the library honest against the reference
+implementation.
+
+**Decision.** `test/differential/xml-corpus.test.ts` runs every corpus op
+the C API can express. An op with no handler passes ONLY if it is
+enumerated in `KNOWN_GAPS` with a reason — SKIPS ARE NOT SILENT; anything
+else fails the gate. The only sanctioned skip is `densify` (C++-only, no
+C API); the Phase 5 M3 pass removed the gap entries as the construction
+ops landed.
+
+**Consequences.** The gate shrinks as coverage grows; corpus candidates
+prefer the vendored spike checkout, then the CI tarball extraction, same
+relative layout. The 8,753 figure is the corpus size at the Phase 5 gate —
+a GEOS bump re-counts it (D5).
 
 ---
 

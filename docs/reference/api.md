@@ -42,7 +42,7 @@ geometries, then the context.
 
 ### `geos.stats` / `geos.statsPrecise()`
 `stats` — cheap JS counters: `liveGeoms`, `heapBytesApprox`,
-`finalizerReaps`, `peakLiveGeoms`, `arenaHighWater` (D24).
+`finalized`, `peakLiveGeoms`, `arenaHighWater` (D24).
 `statsPrecise()` — one shim crossing over live pointers: per geometry
 64 B + vertices × dims × 8. Documented approximate (M ordinates are not
 per-geometry detectable).
@@ -71,7 +71,7 @@ all-or-nothing.
 | op | notes |
 |----|-------|
 | `geos.fromWKT(wkt)` | parses via the pooled reader; errors carry the GEOS message |
-| `geos.toWKT(g, opts?)` | `WKTOptions` (`trim`, `roundingPrecision`, `outputDimension`, `old3D`); default Shapely-style trimmed |
+| `geos.toWKT(g, opts?)` | `WKTOptions` (`trim`, `precision`, `outputDimension`, `old3D`); default Shapely-style trimmed |
 | `geos.fromWKB(buf)` / `geos.toWKB(g, opts?)` | `WKBOptions` (`byteOrder`, `outputDimension`, `includeSRID`); PostGIS `bytea` (EWKB) roundtrips incl. SRID |
 | `geos.fromWKBMany(buf, offsets, opts?)` | n geometries from one buffer, one crossing (u32 byte offsets cap at 4 GB) |
 | `geos.fromGeoJSON(obj)` / `geos.toGeoJSON(g, opts?)` | parsed/ assembled in JS for precise errors (D13); `GeoJSONOptions` (`feature`, `srid`); winding preserved as input |
@@ -258,9 +258,10 @@ continues the id sequence after prior `insert` calls (ids[i] = size-before
 ## Parallel
 
 `geos.parallel.*` mirrors the batch core on the worker pool (D23):
-`intersection`, `union`, `difference`, `symDifference`, the nine masks,
-`distance`/`hausdorff`/`frechet`, `bufferAll`, `makeValid`, `unionAll`,
-`areaAll`, `lengthAll` — all returning Promises. Options:
+`intersectionAll`, `unionAll`, `differenceAll`, `symDifferenceAll`, the
+nine predicate masks, `areaAll`/`lengthAll`/`distanceAll`,
+`hausdorffAll`/`frechetAll`, `bufferAll`, `makeValid` — all returning
+Promises. There are no singular mirrors on the pool. Options:
 `ParallelOptions` (`concurrency`, `chunkFactor`, `minChunkGeoms`,
 `jobTimeoutMs`, `signal`). At most ONE signal-taking op in flight per
 pool; chunking by cumulative vertex count; results reassemble in input

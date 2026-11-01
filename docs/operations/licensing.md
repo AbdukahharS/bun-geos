@@ -40,7 +40,7 @@ patch must be published alongside under the LGPL).
 
 | Code | License |
 |------|---------|
-| `@shzd/bun-geos` TS + `shim.c` | **MIT** (planned — confirm before first publish) |
+| `@shzd/bun-geos` TS + `shim.c` | **MIT** |
 | Bundled GEOS binaries | LGPL-2.1+ (covered by the files above, per platform package) |
 | Anything else | nothing — the dependency tree of the *native* side is exactly GEOS |
 

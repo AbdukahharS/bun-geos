@@ -45,15 +45,16 @@ const fixed = await geos.parallel.makeValid(dirtyParcels, {
 - **The pool is a consumable**: disposing the `Geos` shuts it down (workers acknowledge before
   terminate — a terminated worker would leak its C session).
 
-Measured honestly: `parallel makeValid` at 10⁵ geometries is ~4–5× over per-object calls
+Measured honestly: `parallel makeValid` at 10⁵ geometries is ~3.7–5× over per-object calls
 (WKB serialization on the main thread bounds lighter ops — see
 [benchmarks](../benchmarks.md) and [D22](../decisions.md) for why the batch axis lives here).
 
 ## Cancellation (D19's honest limits)
 
 ```ts
-const out = await geos.parallel.intersection(a, b, { signal }); // main thread stays free;
-                                                                // its listener flips the flag
+const out = await geos.parallel.intersectionAll(a, manyBs, { signal }); // main thread stays
+                                                                        // free; its listener
+                                                                        // flips the flag
 const res = geos.intersection(a, b, { signal });                // sync: pre-check + aborted
                                                                 // error shape, but the call
                                                                 // itself blocks the thread

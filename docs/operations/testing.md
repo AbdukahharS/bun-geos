@@ -39,8 +39,8 @@
   baseline; RSS bounded.
 - **FFI value-roundtrip smoke per Bun release:** declare every arg/return type used and
   assert values survive (guards the coercion bug class — cf.
-  [oven-sh/bun#44906](https://github.com/oven-sh/bun/issues/44906)); runs in a separate
-  "bun-compat" job triggered on new Bun majors. Seeded by
+  [oven-sh/bun#44906](https://github.com/oven-sh/bun/issues/44906)); runs inside the
+  `check` job's spike suite on every push/PR — and therefore on every Bun bump. Seeded by
   `spike/ffi-values.test.ts` (passes on Bun 1.4.3 — see
   [spike results](../research/spike-results.md) F5).
 - **Worker race test:** spawn N workers that immediately load the package (regression

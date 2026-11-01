@@ -49,8 +49,9 @@ measurements (same-process, interleaved reps, sync-GC discipline).
   (was `fromWKBMany`) — relevant only to consumers switching on `err.op` —
   and single `fromWKB`/`fromWKT` reads keep the JS-side check unchanged.
 - The STRtree id→geometry registry is a plain array (ids are sequential by
-  construction, so the `Map` was pure overhead — `Map.set` measured ~12 ms
-  vs ~3 ms for pushes per 100k items, i.e. roughly **~1.5× on 100k-item
+  construction, so the `Map` was pure overhead — `Map.set` measured ~11 ms
+  vs ~2 ms for pushes per 100k items (the figures recorded in
+  `src/spatial/strtree.ts`), i.e. roughly **~1.5× on 100k-item
   builds**). This benefits `insert`, `insertMany`, and the
   `geos.strtree(geoms)` constructor alike; internals only, all behavior
   contracts (D16 ids, D17 pinning, frozen-at-build) unchanged. Post-change,
@@ -63,7 +64,18 @@ measurements (same-process, interleaved reps, sync-GC discipline).
 - D32 recorded; api.md documents `insertMany`; the symbol reference carries
   the new binding (bound as `usize`, matching the codebase's `size_t`
   convention) and the D31-in-the-crossing note; design docs updated for
-  the array registry. MSVC shim builds now pass `/utf-8` (shim.c carries
+  the array registry. A docs-accuracy pass against the committed baselines
+  and the source: README's headline numbers now quote `bench/results.json`
+  (90× STRtree, 33× prepared, 19.6× read-many, ~3.7–5× pool), api.md
+  corrected three false facts (`stats.finalized`, `WKTOptions.precision`,
+  the parallel pool's real `*All` surface), the D29 corpus-gate decision
+  recorded where the references already pointed, and the operations docs
+  caught up with shipped reality (OIDC publishing, the darwin-x64 cross
+  build, runner names). The Cirth docs-site orphan branch is retired — the
+  site imports `site/` from `main` directly, `bun run docs:site` syncs the
+  generated `site/changelog.md`, and the site gates (link discipline, no
+  D-refs in hand-written pages, changelog freshness) became permanent
+  tests. MSVC shim builds now pass `/utf-8` (shim.c carries
   UTF-8 text in comments and the D31 message — without the flag the Windows
   error string could drift through the system code page).
 

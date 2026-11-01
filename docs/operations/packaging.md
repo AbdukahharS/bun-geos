@@ -3,9 +3,10 @@
 > Status: **IMPLEMENTED (Phase 4)** — the 8-package layout, the CI matrix
 > (`.github/workflows/release.yml`), the release tooling
 > (`scripts/release.ts`, `scripts/release-dry-run.ts`), and the install
-> matrix (`.github/workflows/install-matrix.yml`) are in the repo. The
-> first real publish (0.0.1) is the remaining step; exit evidence lands in
-> the [ROADMAP](../ROADMAP.md) when the install matrix runs clean.
+> matrix (`.github/workflows/install-matrix.yml`) are in the repo and
+> proven through 0.2.0 — published via trusted publishing (OIDC) since
+> 0.1.0; release history and install-matrix evidence live in the
+> [ROADMAP](../ROADMAP.md).
 > Implements D6, D7, D8, D26. Precedents: `sharp`/`@img/*`,
 > `esbuild`/`@esbuild/*`, and — closest to our layout — `@swc/core` →
 > `@swc/core-linux-x64-gnu`, `@parcel/watcher-*`, `@tailwindcss/oxide-*`.
@@ -91,12 +92,12 @@ cc() fallback path was dropped — never production-relevant).
 | Job | Runner | Produces |
 |-----|--------|----------|
 | darwin-arm64 | `macos-14` | shim.dylib, libgeos.dylib, libgeos_c.dylib |
-| darwin-x64 | `macos-13` | same, x64 |
-| linux-x64-gnu | `ubuntu-22.04` / `24.04` | shim.so, libgeos.so, libgeos_c.so |
-| linux-arm64-gnu | `ubuntu-22.04-arm` (or cross via zig/cc) | same, arm64 |
-| linux-x64-musl | `alpine` container | same, musl |
-| linux-arm64-musl | alpine arm container / cross | same |
-| win32-x64 | `windows-2022` (MSVC + CMake) | shim.dll, geos.dll, geos_c.dll |
+| darwin-x64 | `macos-14` (x64 cross, `CMAKE_OSX_ARCHITECTURES`) | same, x64 |
+| linux-x64-gnu | `ubuntu-24.04` | shim.so, libgeos.so, libgeos_c.so |
+| linux-arm64-gnu | `ubuntu-24.04-arm` | same, arm64 |
+| linux-x64-musl | `alpine` container (on `ubuntu-24.04`) | same, musl |
+| linux-arm64-musl | `alpine` container (on `ubuntu-24.04-arm`) | same |
+| win32-x64 | `windows-latest` (MSVC + CMake) | shim.dll, geos.dll, geos_c.dll |
 
 Each job: fetch pinned GEOS 3.14.x source → CMake build (shared libs) → build shim against
 it → strip → stage package with `LICENSE` + `THIRD_PARTY.md`
@@ -166,7 +167,7 @@ idempotent.
 |--------|-------|
 | linux-*-gnu | gcc + Ninja; shim links `--disable-new-dtags` → DT_RPATH (transitively resolves libgeos through libgeos_c, spike F3); GEOS install tree bakes `$ORIGIN`. |
 | linux-*-musl | Built INSIDE `docker run alpine:3.20` from the ubuntu runner (musl arm64 = container on the arm runner). NOT `container:` jobs — GitHub's JS-action runtime is glibc node and cannot execute in a musl container (the checkout step itself would fail). Bun installs inside the container via the official script. |
-| darwin-* | clang; `$ORIGIN` is ELF-only — everything is `@loader_path` (`CMAKE_INSTALL_RPATH` + shim `-rpath`). Verify with `otool -L` (licensing-check does). `macos-13` (x64) retirement watch: fallback = cross-compile `CMAKE_OSX_ARCHITECTURES=x86_64` on macos-14 + Rosetta smoke — not implemented, revisit when GitHub dates it. |
+| darwin-* | clang; `$ORIGIN` is ELF-only — everything is `@loader_path` (`CMAKE_INSTALL_RPATH` + shim `-rpath`). Verify with `otool -L` (licensing-check does). `macos-13` (x64) is gone from the pool (2026-10: queued > 14 h) — shipped: cross-compile `CMAKE_OSX_ARCHITECTURES=x86_64` on macos-14; the smoke runs as an x64 bun process under Rosetta, falling back to the static arch-check because x64 bun under Rosetta SIGILLs once bun:ffi's JIT engages (1.4.3). |
 | win32-x64 | cl.exe via `ilammy/msvc-dev-cmd` (also for CMake; default VS generator, no Ninja dependency). No rpath concept: **the loader preloads `geos.dll` → `geos_c.dll` → shim.dll by absolute path** — the Windows DLL search path excludes a loaded DLL's own directory (src/loader.ts). Exports: `native/shim.def` (MSVC exports nothing by default; LoadLibrary+GetProcAddress see only listed symbols). TLS: `__declspec(thread)` via `SHIM_TLS`; atomics: pre-C11 volatile fallback forced on `_MSC_VER` (its `<stdatomic.h>` is incomplete). First real Windows `bun:ffi` evidence = the platform smoke's FFI section on this job. |
 
 Stripping: `strip --strip-unneeded` (linux) / `strip -x` (darwin) — applied where? Not yet

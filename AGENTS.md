@@ -28,9 +28,9 @@ scripts/release.ts       the publish pipeline (token auth; OIDC reserved)
 scripts/release-dry-run.ts  verdaccio end-to-end rehearsal
 scripts/platform-smoke.ts   the per-platform gate against a STAGED tree
 scripts/gen-symbol-reference.ts   `bun run docs:reference` — docs/reference/symbols.md
-scripts/docs-site-prepare.ts      `bun run docs:site` — assemble the docs-site orphan
-                                  branch (rewrites relative .md links to site paths
-                                  for the Cirth import; push the branch after)
+scripts/site-sync.ts     `bun run docs:site` — sync site/changelog.md from CHANGELOG.md
+                         (the Cirth site imports site/ from main directly; the
+                         site gates live in test/unit/site.test.ts)
 scripts/test-native-valgrind.ts   `bun run test:native:valgrind` (Phase 5 gate)
 test/
   unit/ properties/ soak/ differential/   bun test test/

@@ -108,6 +108,7 @@ relatePatternAll(bs, pattern, opts?): Uint8Array
 
 ```ts
 insert(g): number                  // pre-build only
+insertMany(gs): number[]           // n inserts, ONE crossing; ids continue insert's sequence
 build(): void                      // query() auto-builds; insert after build throws
 query(env: Geometry): Int32Array   // envelope candidates — exact filter is yours
 queryAll(envs): { ids: Int32Array; offsets: Uint32Array }  // N queries, one crossing
