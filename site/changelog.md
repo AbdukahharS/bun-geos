@@ -7,7 +7,7 @@ version gating.
 Format: Keep a Changelog-ish; semver-ish 0.y.z until the 1.0 gate ([D30](https://github.com/AbdukahharS/bun-geos/blob/main/docs/decisions.md)):
 a release carrying a breaking change OR new API bumps `y`; fixes/perf/docs bump `z`.
 
-## 0.3.0 — the crossing-amortized boundary (unreleased)
+## 0.3.0 — the crossing-amortized boundary
 
 An additive release (`y` bump for the new API — NOT breaking; the 1.0-gate
 three-month clock is unaffected, D30/D32). The D31 batch check moves into

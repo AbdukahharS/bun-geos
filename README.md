@@ -14,7 +14,7 @@ inside PostGIS — for complex overlays, topology repair, and boolean operations
 > the classic geospatial bug — this library will happily hand you garbage with a straight face.
 
 > [!NOTE]
-> **Status: 0.2.0 — post-Phase-5, declared linear-only (D31).** The complete api-surface target is
+> **Status: 0.3.0 — post-Phase-5, declared linear-only (D31).** The complete api-surface target is
 > implemented and gated: 281 tests, an 8,753-op GEOS/JTS corpus differential gate,
 > ASan+Valgrind shim gates, GeoArrow golden-byte conformance, PostGIS oracle.
 > See the [roadmap](docs/ROADMAP.md) for phase status and the
