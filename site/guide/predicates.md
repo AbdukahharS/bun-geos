@@ -37,7 +37,7 @@ const ok = geos.relatesPattern(a, b, "T*T***T**"); // query by mask
 If one geometry participates in many tests, prepare it. Preparation builds an internal
 structure once; each subsequent predicate skips the repeated work. On scan-heavy
 workloads this is the difference measured in the repo's
-[benchmark suite](/benchmarks) at **~33×** over unprepared scans.
+[benchmark suite](/benchmarks) at **~35×** over unprepared scans.
 
 ```ts
 using prep = a.prepare();
@@ -115,7 +115,7 @@ const { ids, offsets } = tree.queryAll(envelopes); // query i owns ids[offsets[i
   one crossing that returns only the ids that pass, when you'd otherwise loop in JS.
 - `nearest` walks a C distance table — correct nearest-neighbor, no JS loop.
 
-The index measured **~90×** over a naive JS scan in the repo's
+The index measured **~107×** over a naive JS scan in the repo's
 [benchmark suite](/benchmarks); the point isn't the number, it's that the crossing
 count stops mattering.
 

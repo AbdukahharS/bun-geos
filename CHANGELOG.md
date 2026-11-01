@@ -7,6 +7,18 @@ version gating.
 Format: Keep a Changelog-ish; semver-ish 0.y.z until the 1.0 gate ([D30](docs/decisions.md)):
 a release carrying a breaking change OR new API bumps `y`; fixes/perf/docs bump `z`.
 
+## Unreleased
+
+**Docs & tooling:**
+
+- Benchmark baselines regenerated on the baseline machine (Ryzen 7 260, now
+  Bun 1.4.4, commit `6fe2b0b`) — the 0.3.0 perf changes are in the numbers:
+  prepared 35×, STRtree 107×, read-many 14.3×, pool ~4.6× (0.3.0 shipped
+  quoting the 0.2.0-era `a1fffdc` run). `docs/benchmarks.md` re-rendered,
+  the site benchmarks page and guide citations synced, and the competitor
+  runner's bun-geos version stamp now reads the manifest (was hardcoded
+  0.1.0).
+
 ## 0.3.0 — the crossing-amortized boundary
 
 An additive release (`y` bump for the new API — NOT breaking; the 1.0-gate

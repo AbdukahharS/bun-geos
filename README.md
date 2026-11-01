@@ -93,9 +93,9 @@ Every op ships a plural form that is *not* a JS loop over the singular — masks
 `Uint8Array`, ingest as one `fromWKBMany` crossing, and heavy batch work has a worker-pool
 mirror (`geos.parallel.*`) with chunking, `AbortSignal` support, and WKB transfer.
 
-Measured honestly on Bun 1.4.3 ([docs/benchmarks.md](docs/benchmarks.md)): prepared predicate
-scans **33×** vs unprepared; STRtree queries **90×** vs a naive JS scan; WKB read-many
-**19.6×**; `parallel makeValid` at 10⁵ geometries **~3.7–5× across runs** over per-object calls.
+Measured honestly on Bun 1.4.4 ([docs/benchmarks.md](docs/benchmarks.md)): prepared predicate
+scans **35×** vs unprepared; STRtree queries **107×** vs a naive JS scan; WKB read-many
+**14.3×**; `parallel makeValid` at 10⁵ geometries **~4.6×** (3.7–5× across runs) over per-object calls.
 
 ## Documentation
 

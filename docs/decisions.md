@@ -273,9 +273,9 @@ the pins. `GEOSSTRtree_remove_r`/`iterate_r` stay unbound (not in the API
 surface).
 
 **Consequences.** `query()` returns `Int32Array` ids with zero JS
-post-processing; `nearest()` is one crossing. Benchmark: 90× over a naive JS
+post-processing; `nearest()` is one crossing. Benchmark: 107× over a naive JS
 envelope scan (100k items × 1k queries) in the committed baseline — recorded
-122× at decision time, pre-baseline-refresh; `bench/results.json` is the live
+122× at decision time; `bench/results.json` is the live
 number. Removing an item requires a rebuild (documented).
 
 ## D17 — Consumer pins: Prepared/STRtree take ownership-grade references
@@ -312,7 +312,7 @@ that checks the atomic interrupt flag between items. The first GEOS exception
 codes: 0 ok, 1 exception (message captured), 2 interrupted.
 
 **Consequences.** Benchmarks show prepared singulars already beat unprepared
-by ~32×; batch wins when the GEOS work per item is larger than the FFI
+by ~35×; batch wins when the GEOS work per item is larger than the FFI
 crossing (complex geometries) — the honest numbers live in `bench/results.json`.
 
 ## D19 — Interrupt: atomic global flag; same-thread sync calls cannot be interrupted mid-flight
@@ -363,9 +363,8 @@ direct. Raw `geos.coverageUnion()` skips validation — documented
 caller-asserts fast path.
 
 **Consequences.** Two crossings regardless of input size (architecture.md §4).
-On a 961-tile aligned coverage: coverage 4.1ms vs unary 9.8ms in the
-committed baseline (4.0/9.3 at decision time; GEOS's own scaling — the gap
-widens with n). The ladder is in `bench/results.json`.
+On a 961-tile aligned coverage: coverage ~4.0ms vs unary ~9.3ms (GEOS's
+own scaling — the gap widens with n). The ladder is in `bench/results.json`.
 
 ## D21 — Coverage ops: `Geometry[]` in via shim clone-collect; owned clones out; diagnostics are strings
 

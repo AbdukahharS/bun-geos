@@ -5,6 +5,8 @@
  * same-machine, same-input, same-methodology numbers.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Geos } from "../../../src/index.ts";
 import type { ScenarioOutput } from "../../lib/metrics.ts";
 import { timeMs } from "../../lib/metrics.ts";
@@ -60,7 +62,12 @@ function get(): Geos {
 }
 
 export function bunGeosVersion(): string {
-  return `GEOS ${get().version} / bun-geos 0.1.0`;
+  // the manifest is the truth — the repo ships raw TS, so the staged
+  // package.json IS the running version (was hardcoded "0.1.0")
+  const pkg = JSON.parse(
+    readFileSync(join(import.meta.dir, "..", "..", "..", "package.json"), "utf8"),
+  ) as { version: string };
+  return `GEOS ${get().version} / bun-geos ${pkg.version}`;
 }
 
 export function disposeBunGeos(): void {
