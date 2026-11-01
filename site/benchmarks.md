@@ -31,7 +31,7 @@ variant (unprepared, build, coverage), which use that variant for every engine:
 - **pure JS** — JSTS 2.12.1, `@turf/turf` 7.4.0, polygon-clipping 0.15.7, and the
   index/codec specialists rbush 4.0.1, flatbush 4.6.2, wkx 0.5.0
 
-**Bold** marks the fastest engine in a row — but only when it leads the runner-up
+**Bold ✱** marks the fastest engine in a row — but only when it leads the runner-up
 by more than the ±10% cross-process noise floor, so noise-level gaps stay unbolded
 and ties crown nobody. `—` = not run / not applicable; the notes under each table
 say why. Rows and notes labelled *internal half* come from the suite's internal
@@ -78,8 +78,8 @@ workload can differ between halves by run-to-run noise.
 
 | op | bun-geos | direct C | Shapely 2 | JSTS | flatbush | rbush |
 |----|---------:|---------:|----------:|-----:|---------:|------:|
-| build | 24.4 | 12.7 | 13.7 | 29.9 | **7.7** | 14.1 |
-| query | 3.6 | **1.6** | 2.6 | 8.9 | 3.5 | 6.4 |
+| build | 24.4 | 12.7 | 13.7 | 29.9 | **7.7 ✱** | 14.1 |
+| query | 3.6 | **1.6 ✱** | 2.6 | 8.9 | 3.5 | 6.4 |
 
 - geos-wasm's STRtree query binding is unusable at this size (a WASM callback
   signature mismatch) — recorded in the suite's failures ledger.
@@ -92,7 +92,7 @@ workload can differ between halves by run-to-run noise.
 
 | decode | bun-geos | direct C | Shapely 2 | geos-wasm | wkx |
 |--------|---------:|---------:|----------:|----------:|----:|
-| WKB → geometry | 8.0 | 3.1 | 4.5 | 17.7 | **2.5** |
+| WKB → geometry | 8.0 | 3.1 | 4.5 | 17.7 | **2.5 ✱** |
 
 - JSTS ships no WKB codecs — WKT ingest only.
 - wkx's 2.5 decodes raw coordinates — no geometry object, no engine (see below).
@@ -119,7 +119,7 @@ workload can differ between halves by run-to-run noise.
 | | ms |
 |--|---:|
 | calling thread | 4390.5 |
-| worker pool | **956.9** |
+| worker pool | **956.9 ✱** |
 
 ~4.6× with vertex-weighted chunks and WKB transfer. No competitor engine has a
 pool, so this axis is internal-only. Light ops stay serialization-bound (parallel
@@ -131,7 +131,8 @@ mask scan: 131.9 ms pooled vs 3.5 ms on the calling thread). Semantics:
 - **Parity with direct C is the design goal, and it holds** on the workloads that
   matter — overlays, repair, union dispatch, ingest land within the noise band of
   the same GEOS called from C++. That is also why few cells are bold: the ones
-  that are (flatbush's index build, direct C's index query) are the real gaps.
+  that are (flatbush's index build, direct C's index query, wkx's raw decode)
+  are the real gaps.
 - **Direct C is faster in the micro spots** (index queries, raw WKB decode,
   prepared scans): under a few microseconds per op, the FFI crossing itself is
   visible. That is the honest cost of the boundary, and it is why the batch read

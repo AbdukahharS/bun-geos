@@ -17,7 +17,8 @@ a release carrying a breaking change OR new API bumps `y`; fixes/perf/docs bump 
   quoting the 0.2.0-era `a1fffdc` run). `docs/benchmarks.md` re-rendered,
   the site benchmarks page and guide citations synced, and the competitor
   runner's bun-geos version stamp now reads the manifest (was hardcoded
-  0.1.0).
+  0.1.0). Winning cells on the site benchmarks page carry a visible ✱
+  marker next to the bold — weight alone was too quiet in Geist.
 
 ## 0.3.0 — the crossing-amortized boundary
 
