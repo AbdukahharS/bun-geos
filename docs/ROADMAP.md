@@ -1,6 +1,6 @@
 # Roadmap
 
-> Status: **phases 0–5 COMPLETE — 0.2.0 on npm** (October 2026). The
+> Status: **phases 0–5 COMPLETE — 0.3.0 on npm** (November 2026). The
 > live plan is the [1.0 gate](#the-10-gate-post-phase-5) below (D30);
 > the full phase prose is archived in
 > [archive/roadmap-phase-plan.md](archive/roadmap-phase-plan.md).
@@ -11,7 +11,7 @@
 | 1 — Core | loader, contexts, I/O, construction, overlays, measures | **COMPLETE** | WKB golden corpus roundtrip-identical; create/destroy soak leak-free; property invariants green |
 | 2 — Differentiators | prepared predicates, STRtree, `unionAll` dispatch, repair suite, precision, interrupt | **COMPLETE** | prepared scan **32×**, STRtree **122×**, coverage union **2.3×**; 857-case validity corpus green |
 | 3 — Performance & scale | shim batch ops, worker pool, memory accounting, published benchmarks | **COMPLETE** | `parallel makeValid` at 10⁵ geoms **~3.9–5×** (bounded by input serialization; main-thread batches publish honest ~1× — D22); seeded, reproducible benchmark suite |
-| 4 — Packaging & release | 8-package publish pipeline, licensing, docs | **COMPLETE** | 0.1.0 published via trusted publishing/OIDC; install matrix green (11 jobs × 8–35 s — the < 60 s criterion met) |
+| 4 — Packaging & release | 8-package publish pipeline, licensing, docs | **COMPLETE** | 0.1.0 published via trusted publishing/OIDC; install matrix green (11 jobs × 8–35 s — the < 60 s criterion met); re-proven at 0.3.0 (Nov 2026) |
 | 5 — Hardening & polish | permanent corpus/Valgrind gates, GeoArrow v2, API reference, construction ops | **COMPLETE** | 257 tests green; permanent 8,753-op XML corpus gate (D29); GeoArrow golden-byte conformance; 196-binding symbol table; the full construction-op surface (D27) |
 
 A GEOS bump re-runs this ladder as a release of this package (D5) — it
