@@ -2,7 +2,7 @@
  * Cirth site gates (permanent). The docs-site-prepare script that used to
  * enforce these was retired when the site switched to importing `site/`
  * from `main` directly — the gates became tests instead of build steps:
- *   1. site/changelog.md is fresh — byte-equal to CHANGELOG.md after the
+ *   1. site/docs/changelog.md is fresh — byte-equal to CHANGELOG.md after the
  *      same repo-relative → GitHub link rewrite scripts/site-sync.ts applies
  *      (regenerate with `bun run docs:site` when the changelog changes).
  *   2. Link discipline: every markdown link in a hand-written site page is
@@ -20,7 +20,7 @@ import { pointLinksAtGithub } from "../../scripts/site-sync.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const SITE = join(ROOT, "site");
-const GENERATED = new Set(["changelog.md"]);
+const GENERATED = new Set(["docs/changelog.md"]);
 const FENCE_RE = /^\s*(?:>\s*)?(```|~~~)/;
 
 /** Site pages, as `<dir>/<name>` (or bare name at the root), sorted. */
@@ -38,9 +38,9 @@ function sitePages(): string[] {
 }
 
 describe("cirth site gates", () => {
-  it("site/changelog.md is fresh (mirrors CHANGELOG.md)", () => {
+  it("site/docs/changelog.md is fresh (mirrors CHANGELOG.md)", () => {
     const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
-    const generated = readFileSync(join(SITE, "changelog.md"), "utf8");
+    const generated = readFileSync(join(SITE, "docs", "changelog.md"), "utf8");
     // the sync writes a trailing newline; compare content, not EOF bytes
     expect(generated.trim()).toEqual(`${pointLinksAtGithub(changelog)}`.trim());
   });

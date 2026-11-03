@@ -7,7 +7,7 @@
  * push, and (when a page was edited in Cirth) one full refresh with
  * "repository wins" on the dashboard's Import page.
  *
- * The only generated page is `site/changelog.md`: an exact mirror of the
+ * The only generated page is `site/docs/changelog.md`: an exact mirror of the
  * root CHANGELOG.md with repo-relative links pointed at the GitHub tree
  * (the changelog legitimately cites dev docs the site does not carry).
  * The permanent gates live in `test/unit/site.test.ts`: changelog
@@ -47,7 +47,7 @@ export function pointLinksAtGithub(text: string): string {
 
 if (import.meta.main) {
   const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
-  mkdirSync(join(ROOT, "site"), { recursive: true });
-  writeFileSync(join(ROOT, "site", "changelog.md"), `${pointLinksAtGithub(changelog)}\n`);
-  console.log("site-sync: site/changelog.md written from CHANGELOG.md");
+  mkdirSync(join(ROOT, "site", "docs"), { recursive: true });
+  writeFileSync(join(ROOT, "site", "docs", "changelog.md"), `${pointLinksAtGithub(changelog)}\n`);
+  console.log("site-sync: site/docs/changelog.md written from CHANGELOG.md");
 }
