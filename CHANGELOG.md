@@ -19,6 +19,11 @@ a release carrying a breaking change OR new API bumps `y`; fixes/perf/docs bump 
   runner's bun-geos version stamp now reads the manifest (was hardcoded
   0.1.0). Winning cells on the site benchmarks page carry a visible ✱
   marker next to the bold — weight alone was too quiet in Geist.
+- Launch announcement page for the social launch
+  (`site/blog/announcing-bun-geos.md`): a blog-post-style landing carrying the
+  30-second sample, the curated benchmark table with the honesty framing, and
+  the "what it is not" rules; linked from the home page's "Where to next"
+  table as News.
 
 ## 0.3.0 — the crossing-amortized boundary
 

@@ -100,6 +100,7 @@ build — that decision is not up for debate. For browser workloads, use
 | [Benchmarks](/benchmarks) | see the numbers, the methodology, and the cross-library comparison |
 | [API reference](/reference) | look up a signature |
 | [Changelog](/changelog) | see what changed |
+| [News](/blog/announcing-bun-geos) | read the launch announcement |
 
 ## License
 
