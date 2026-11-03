@@ -23,7 +23,9 @@ a release carrying a breaking change OR new API bumps `y`; fixes/perf/docs bump 
   (`site/blog/announcing-bun-geos.md`): a blog-post-style landing carrying the
   30-second sample, the curated benchmark table with the honesty framing, and
   the "what it is not" rules; linked from the home page's "Where to next"
-  table as News.
+  table as News. The "Bun-only, by design" note on the home and install pages
+  softens to "Bun-only today" — Node's experimental `node:ffi` (Node ≥ 26.1)
+  is acknowledged as the possible path to a Node story.
 
 ## 0.3.0 — the crossing-amortized boundary
 

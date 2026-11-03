@@ -81,8 +81,9 @@ crossings. [Quickstart](/quickstart) walks it end to end.
 - [Bun](https://bun.com) ≥ **1.4.3** (the tested pin; the tested range is documented per release)
 - Nothing else.
 
-**Bun-only, by design.** Node.js and browsers are not supported and there is no WASM
-build — that decision is not up for debate. For browser workloads, use
+**Bun-only today.** Node.js and browsers are not supported and there is no WASM build —
+that may change once Node's experimental `node:ffi` (Node ≥ 26.1) matures; see the
+[announcement](/blog/announcing-bun-geos). For browser workloads, use
 [geos-wasm](https://github.com/chrispahm/geos-wasm).
 
 ## Where to next
