@@ -7,8 +7,10 @@
  * Runtime-probed: the jsts 2.12 npm bundle omits prepared geometry and the
  * WKB codecs entirely (io is WKT/GeoJSON only), so prepared-scan skips and
  * ingest measures WKT parse; each scenario probes its entry points and
- * skips with a recorded reason when absent (no MakeValid — JSTS predates
- * JTS 1.20).
+ * skips with a recorded reason when absent (no MakeValid — jsts 2.12 has no
+ * port of JTS's GeometryFixer, which upstream added in 1.18.2; JTS itself
+ * has never shipped a class named MakeValid — verified against the 2.12.1
+ * npm bundle file listing and the JTS master tree, 2026-11-04).
  */
 
 import type { ScenarioOutput } from "../../lib/metrics.ts";

@@ -583,7 +583,7 @@
         "count": 100,
         "areaSum": 786995.9790526892
       },
-      "note": "geographic projection built in \u2014 planar fingerprint mismatch expected"
+      "note": "projects to local azimuthal-equidistant meters (JSTS BufferOp inside) \u2014 mismatch vs degree-unit answer expected"
     },
     {
       "engine": "polygon-clipping",

@@ -115,7 +115,9 @@ boundary; the benchmark story gains an honest cross-library comparison.
   twins), in-process competitor adapters (geos-wasm, JSTS, turf, polygon-clipping, rbush,
   flatbush, wkx) plus Shapely 2 and a direct GEOS C++ subprocess baseline, an
   answer-fingerprint column, and a documented ±10% noise band. 44/45 cross-engine answer
-  fingerprints agree (the one difference is turf's geodesic buffer, by design). Competitor
+  fingerprints agree (the one difference is turf's projected-meters buffer, by
+  design — turf buffers in a local azimuthal-equidistant projection while the
+  GEOS-family engines buffer in the input's native units). Competitor
   engines are optional devDependencies behind `bench:competitors:setup`; the methodology
   is documented in testing.md §4.
 

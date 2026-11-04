@@ -142,8 +142,8 @@ versions where per-call costs regress.
 > `bun run bench:competitors` (optional devDependencies: `bun run bench:competitors:setup`).
 >
 > **fp** = answer fingerprint vs bun-geos at the same size (✓ agree / ✗ differs —
-> read the engine's note before trusting a ✗ row, e.g. turf's buffer projects
-> geographically by design). **× vs bun-geos** compares each engine's variant
+> read the engine's note before trusting a ✗ row, e.g. turf's buffer runs in
+> projected meters by design). **× vs bun-geos** compares each engine's variant
 > against the reference's BEST variant at that size; ratios within [0.9, 1.1]
 > render as ≈ (the cross-process noise floor). Speedups are same-machine,
 > same-input numbers.
@@ -293,7 +293,28 @@ versions where per-call costs regress.
 | 100 | geos-wasm | buffer | 19.3 | 5,187 | 1.56× | ✓ | GEOS 3.13 via Emscripten — raw C API, manual heap plumbing |
 | 100 | jsts | buffer | 17.9 | 5,574 | 1.45× | ✓ | JTS port in pure JS — the strongest JS-native engine |
 | 100 | shapely | buffer | 12.0 | 8,330 | ≈ | ✓ |  |
-| 100 | turf | buffer | 65.2 | 1,533 | 5.26× | ✗ | geographic projection built in — planar fingerprint mismatch expected |
+| 100 | turf | buffer | 65.2 | 1,533 | 5.26× | ✗ | projects to local azimuthal-equidistant meters (JSTS BufferOp inside) — mismatch vs degree-unit answer expected |
+
+## What the fingerprints compare (upstream-verified 2026-11-04)
+
+makeValid is a GEOS-family operation, so the makeValid fp rows are
+GEOS-family only: `GEOSMakeValid` shipped in GEOS 3.8.0 (ported from
+librttopo) and the structured method in 3.10 (from JTS PR #704). The
+pure-JS engines have no repair op to compare — jsts 2.12 has no port of
+JTS's GeometryFixer (upstream added it in 1.18.2, and no JTS release
+ships a class named MakeValid), and turf ships none at all
+(`boolean-valid` is a checker, `unkink-polygon` only removes kinks). The
+GEOS-family makeValid fingerprints agree exactly (count + areaSum).
+
+The one intentional ✗ is turf's buffer: turf projects coordinates to a
+local azimuthal-equidistant CRS and buffers in real-world meters (it
+wraps JSTS's BufferOp in that projection), while the other engines
+buffer in the input's native units (degrees here) — different answers by
+design, not a bug on either side. Rounding and precision edge cases are
+covered separately by the differential suite: GEOS's own XML test corpus
+with per-case precision models plus PostGIS/Oracle goldens
+(`test/differential/`). Re-verify these competitor facts after any
+jsts/turf version bump (`bench/competitors/adapters/pkg-version.ts`).
 
 ## Failures & skips
 

@@ -1,10 +1,11 @@
 /**
  * turf adapter — the web-mapping default (@turf/turf). Pure-JS algorithm
  * ports; overlay historically Martinez-family. Known quirks surface
- * honestly through fingerprints: turf's buffer projects geographically
- * (its answer will NOT match the planar GEOS/JTS answer — the report
- * flags it rather than hiding it), and its union is a pairwise fold
- * (ladder capped to 100 tiles).
+ * honestly through fingerprints: turf's buffer projects to a local
+ * azimuthal-equidistant CRS and buffers in real-world meters (its answer
+ * will NOT match the degree-unit planar GEOS/JTS answer — the report flags
+ * it rather than hiding it), and its union is a pairwise fold (ladder
+ * capped to 100 tiles).
  */
 
 import { geojsonPlanarArea, type ScenarioOutput, timeMs } from "../../lib/metrics.ts";
@@ -53,8 +54,8 @@ function turfVersion(): string {
  * Planar fingerprint area: turf's `area()` is GEODESIC (m² on the sphere),
  * which would ✗ every fingerprint against the planar workload. Cross-engine
  * fingerprints use the same planar shoelace math as every other engine;
- * turf's geodesic buffer answer still shows up honestly as a ✗ (different
- * algorithm, not different fingerprint math).
+ * turf's projected-meters buffer answer still shows up honestly as a ✗
+ * (different distance semantics, not different fingerprint math).
  */
 function planarArea(f: TurfFeature | null): number {
   if (f === null) return 0;
@@ -170,7 +171,7 @@ export default {
       variants: { buffer: ms },
       repeats: 3,
       fingerprint: { count, areaSum },
-      note: "geographic projection built in — planar fingerprint mismatch expected",
+      note: "projects to local azimuthal-equidistant meters (JSTS BufferOp inside) — mismatch vs degree-unit answer expected",
     };
   },
 } satisfies Adapter;

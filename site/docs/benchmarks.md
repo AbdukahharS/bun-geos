@@ -105,14 +105,21 @@ workload can differ between halves by run-to-run noise.
 |--------|---------:|---------:|----------:|----------:|
 | makeValid | 36.6 | 39.3 | 37.9 | 103.7 |
 
+makeValid has no pure-JS competitor to compare against: JSTS has no port of
+JTS's repair op (`GeometryFixer`, added upstream in JTS 1.18.2), and turf
+ships no repair op at all. The four engines above are all GEOS-family, and
+their answers agree exactly.
+
 ### Buffer — 100 geometries
 
 | op | bun-geos | direct C | Shapely 2 | geos-wasm | JSTS | turf |
 |----|---------:|---------:|----------:|----------:|-----:|-----:|
 | buffer | 12.4 | 12.3 | 12.0 | 19.3 | 17.9 | 65.2 |
 
-- turf's buffer projects geographically by design — the one answer fingerprint of
-  70 that differs from every other engine; everything else agrees.
+- turf's buffer projects to a local azimuthal-equidistant CRS and buffers in
+  real-world meters (it wraps JSTS's BufferOp in that projection), while the
+  other engines buffer in the input's native units. That is the one answer
+  fingerprint of 70 that differs — by design on both sides, not a bug.
 
 ### Across cores — makeValid, 100k bowties (*internal half*)
 
