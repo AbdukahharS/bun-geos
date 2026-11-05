@@ -2,25 +2,28 @@
  * Cirth site gates (permanent). The docs-site-prepare script that used to
  * enforce these was retired when the site switched to importing `site/`
  * from `main` directly — the gates became tests instead of build steps:
- *   1. site/docs/changelog.md is fresh — byte-equal to CHANGELOG.md after the
- *      same repo-relative → GitHub link rewrite scripts/site-sync.ts applies
- *      (regenerate with `bun run docs:site` when the changelog changes).
+ *   1. site/changelog/ is fresh — exactly what scripts/site-sync.ts
+ *      generates from CHANGELOG.md: one front-mattered entry page per
+ *      release section (never Unreleased), the rendered section index,
+ *      no strays (regenerate with `bun run docs:site` when the changelog
+ *      changes).
  *   2. Link discipline: every markdown link in a hand-written site page is
  *      site-absolute (/…), an in-page anchor, or external — Cirth preserves
  *      these verbatim and GitHub renders them as no-ops at worst.
  *   3. User-docs discipline: hand-written pages never cite D-number
  *      decisions (that language stays in docs/); the generated changelog
- *      is exempt (it mirrors the root file, whose D-references are its own
- *      historical record).
+ *      tree is exempt (it mirrors the root file, whose D-references are
+ *      its own historical record).
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { pointLinksAtGithub } from "../../scripts/site-sync.ts";
+import { generateChangelogSite } from "../../scripts/site-sync.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const SITE = join(ROOT, "site");
-const GENERATED = new Set(["docs/changelog.md"]);
+const CHANGELOG_DIR = join(SITE, "changelog");
+const GENERATED_PREFIX = "changelog/";
 const FENCE_RE = /^\s*(?:>\s*)?(```|~~~)/;
 
 /** Site pages, as `<dir>/<name>` (or bare name at the root), sorted. */
@@ -38,17 +41,26 @@ function sitePages(): string[] {
 }
 
 describe("cirth site gates", () => {
-  it("site/docs/changelog.md is fresh (mirrors CHANGELOG.md)", () => {
+  it("site/changelog/ is fresh (generated from CHANGELOG.md)", () => {
     const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
-    const generated = readFileSync(join(SITE, "docs", "changelog.md"), "utf8");
-    // the sync writes a trailing newline; compare content, not EOF bytes
-    expect(generated.trim()).toEqual(`${pointLinksAtGithub(changelog)}`.trim());
+    const expected = generateChangelogSite(changelog);
+    let onDisk: string[];
+    try {
+      onDisk = readdirSync(CHANGELOG_DIR);
+    } catch {
+      throw new Error("site/changelog/ is missing — run `bun run docs:site`");
+    }
+    const actual = new Map(
+      onDisk.sort().map((name) => [name, readFileSync(join(CHANGELOG_DIR, name), "utf8")]),
+    );
+    expect([...actual.keys()]).toEqual([...expected.keys()]);
+    for (const [name, content] of expected) expect(actual.get(name)).toEqual(content);
   });
 
   it("hand-written pages use only site-absolute, anchor or external links", () => {
     const failures: string[] = [];
     for (const page of sitePages()) {
-      if (GENERATED.has(page)) continue;
+      if (page.startsWith(GENERATED_PREFIX)) continue;
       const lines = readFileSync(join(SITE, page), "utf8").split("\n");
       let fenced = false;
       lines.forEach((line, i) => {
@@ -68,7 +80,7 @@ describe("cirth site gates", () => {
   it("hand-written pages never cite D-number decisions", () => {
     const failures: string[] = [];
     for (const page of sitePages()) {
-      if (GENERATED.has(page)) continue;
+      if (page.startsWith(GENERATED_PREFIX)) continue;
       const lines = readFileSync(join(SITE, page), "utf8").split("\n");
       let fenced = false;
       lines.forEach((line, i) => {
