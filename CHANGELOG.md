@@ -4,7 +4,7 @@ All notable changes to `@shzd/bun-geos` are documented here. The library's GEOS 
 strict 3.14 (D5); GEOS upgrades ship as releases of this package, never as user-visible
 version gating.
 
-Format: Keep a Changelog-ish; semver-ish 0.y.z until the 1.0 gate ([D30](docs/decisions.md)):
+Format: Keep a Changelog; semver-ish 0.y.z until the 1.0 gate ([D30](docs/decisions.md)):
 a release carrying a breaking change OR new API bumps `y`; fixes/perf/docs bump `z`.
 
 ## Unreleased
@@ -27,7 +27,7 @@ a release carrying a breaking change OR new API bumps `y`; fixes/perf/docs bump 
   softens to "Bun-only today" — Node's experimental `node:ffi` (Node ≥ 26.1)
   is acknowledged as the possible path to a Node story.
 
-## 0.3.0 — the crossing-amortized boundary
+## [0.3.0] - 2026-11-01 — the crossing-amortized boundary
 
 An additive release (`y` bump for the new API — NOT breaking; the 1.0-gate
 three-month clock is unaffected, D30/D32). The D31 batch check moves into
@@ -99,7 +99,7 @@ measurements (same-process, interleaved reps, sync-GC discipline).
   UTF-8 text in comments and the D31 message — without the flag the Windows
   error string could drift through the system code page).
 
-## 0.2.0 — the linear-only boundary + the cross-library benchmark suite
+## [0.2.0] - 2026-10-22 — the linear-only boundary + the cross-library benchmark suite
 
 The first post-Phase-5 release: one breaking change and one new API (a `y` bump per D30).
 The library is **declared linear-only** (D31) and the readers now enforce that at the
@@ -146,7 +146,7 @@ boundary; the benchmark story gains an honest cross-library comparison.
   competitor comparison, 10 engines, 56 records).
 - Release tooling: the registry-resolution verify retries extended for CDN visibility lag.
 
-## 0.1.0 — Phase 5 (hardening & polish)
+## [0.1.0] - 2026-10-17 — Phase 5 (hardening & polish)
 
 The complete api-surface target, permanently gated: 257 tests, an 8.7k-op XML corpus
 differential gate, Valgrind + ASan shim gates, GeoArrow golden-byte conformance, and the
@@ -188,7 +188,7 @@ reference docs.
 ASan/UBSan + Valgrind memcheck + spike suite + PostGIS oracle on every PR; nightly
 long-run soak; benchmark regression alerts on dispatch.
 
-## 0.0.2 — Phase 4 (packaging fixes) — **never published** (rolled into 0.1.0)
+## [0.0.2] - 2026-10-16 — Phase 4 (packaging fixes) — **never published** (rolled into 0.1.0)
 
 > The 0.0.2 section below documents repo-side fixes that landed after 0.0.1; the
 > registry never received 0.0.2 (its `latest` was 0.0.1 until 0.1.0), and the
@@ -208,7 +208,7 @@ long-run soak; benchmark regression alerts on dispatch.
   bootstrap was published interactively because granular tokens do not bypass 2FA-enforced
   publishing (`EOTP`), and npm is deprecating 2FA-bypassing tokens outright.
 
-## 0.0.1 — Phase 4 (packaging & release) — first publish
+## [0.0.1] - 2026-10-16 — Phase 4 (packaging & release) — first publish
 
 The first npm release. The library surface itself was completed across Phases 1–3 (see the
 [roadmap](docs/ROADMAP.md) for what landed when and the measured results).

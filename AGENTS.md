@@ -28,13 +28,15 @@ scripts/release.ts       the publish pipeline (token auth; OIDC reserved)
 scripts/release-dry-run.ts  verdaccio end-to-end rehearsal
 scripts/platform-smoke.ts   the per-platform gate against a STAGED tree
 scripts/gen-symbol-reference.ts   `bun run docs:reference` — docs/reference/symbols.md
-scripts/site-sync.ts     `bun run docs:site` — split CHANGELOG.md into the
-                         site/changelog/ feed pages (Cirth's changelog SECTION:
-                         one dated entry per release, Unreleased skipped; the
-                         site imports site/ from main directly — site/docs/ →
-                         Documentation, site/blog/ → Blog, site/changelog/ →
-                         Changelog, one source per folder; the site gates live
-                         in test/unit/site.test.ts)
+CHANGELOG.md             the changelog FEED's source — Cirth's changelog SECTION
+                         parses it directly: `## [x.y.z] - YYYY-MM-DD` headings
+                         become the dated entries (Unreleased stays invisible),
+                         the preamble is the intro page; the site imports site/
+                         from main directly — site/docs/ → Documentation,
+                         site/blog/ → Blog, one source per folder; the site
+                         gates (changelog heading format, link discipline, no
+                         D-refs in hand-written pages) live in
+                         test/unit/site.test.ts
 scripts/test-native-valgrind.ts   `bun run test:native:valgrind` (Phase 5 gate)
 test/
   unit/ properties/ soak/ differential/   bun test test/

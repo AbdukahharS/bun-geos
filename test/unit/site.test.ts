@@ -1,30 +1,28 @@
 /**
- * Cirth site gates (permanent). The docs-site-prepare script that used to
- * enforce these was retired when the site switched to importing `site/`
- * from `main` directly — the gates became tests instead of build steps:
- *   1. site/changelog/ is fresh — exactly what scripts/site-sync.ts
- *      generates from CHANGELOG.md: one front-mattered entry page per
- *      release section (never Unreleased), the rendered section index,
- *      no strays (regenerate with `bun run docs:site` when the changelog
- *      changes).
- *   2. Link discipline: every markdown link in a hand-written site page is
+ * Cirth site gates (permanent). The site imports `site/` from `main`
+ * directly and Cirth's changelog SECTION parses CHANGELOG.md itself (the
+ * per-file sync and the generator that fed it were retired when Cirth
+ * moved changelog syncing to the one-file model). The gates:
+ *   1. CHANGELOG.md headings parse: every `## ` heading is either
+ *      `## Unreleased` or a dated version heading `## [x.y.z] - YYYY-MM-DD`
+ *      — Cirth turns each version heading into a dated feed entry, so a
+ *      malformed heading would silently become intro/body text instead.
+ *   2. Link discipline: every markdown link in a site page is
  *      site-absolute (/…), an in-page anchor, or external — Cirth preserves
  *      these verbatim and GitHub renders them as no-ops at worst.
- *   3. User-docs discipline: hand-written pages never cite D-number
- *      decisions (that language stays in docs/); the generated changelog
- *      tree is exempt (it mirrors the root file, whose D-references are
- *      its own historical record).
+ *   3. User-docs discipline: site pages never cite D-number decisions
+ *      (that language stays in docs/). CHANGELOG.md is exempt — its
+ *      D-references are its own historical record, and the feed mirrors it.
  */
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { generateChangelogSite } from "../../scripts/site-sync.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const SITE = join(ROOT, "site");
-const CHANGELOG_DIR = join(SITE, "changelog");
-const GENERATED_PREFIX = "changelog/";
 const FENCE_RE = /^\s*(?:>\s*)?(```|~~~)/;
+const UNRELEASED_HEADING = /^## Unreleased$/;
+const VERSION_HEADING = /^## \[\d+\.\d+\.\d+\] - \d{4}-\d{2}-\d{2}/;
 
 /** Site pages, as `<dir>/<name>` (or bare name at the root), sorted. */
 function sitePages(): string[] {
@@ -41,26 +39,20 @@ function sitePages(): string[] {
 }
 
 describe("cirth site gates", () => {
-  it("site/changelog/ is fresh (generated from CHANGELOG.md)", () => {
-    const changelog = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
-    const expected = generateChangelogSite(changelog);
-    let onDisk: string[];
-    try {
-      onDisk = readdirSync(CHANGELOG_DIR);
-    } catch {
-      throw new Error("site/changelog/ is missing — run `bun run docs:site`");
-    }
-    const actual = new Map(
-      onDisk.sort().map((name) => [name, readFileSync(join(CHANGELOG_DIR, name), "utf8")]),
-    );
-    expect([...actual.keys()]).toEqual([...expected.keys()]);
-    for (const [name, content] of expected) expect(actual.get(name)).toEqual(content);
+  it("CHANGELOG.md headings parse (dated version entries or Unreleased)", () => {
+    const failures: string[] = [];
+    const lines = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      if (!line.startsWith("## ")) return;
+      const ok = UNRELEASED_HEADING.test(line) || VERSION_HEADING.test(line);
+      if (!ok) failures.push(`CHANGELOG.md:${i + 1} — unrecognized heading: ${line.trim()}`);
+    });
+    expect(failures).toEqual([]);
   });
 
-  it("hand-written pages use only site-absolute, anchor or external links", () => {
+  it("site pages use only site-absolute, anchor or external links", () => {
     const failures: string[] = [];
     for (const page of sitePages()) {
-      if (page.startsWith(GENERATED_PREFIX)) continue;
       const lines = readFileSync(join(SITE, page), "utf8").split("\n");
       let fenced = false;
       lines.forEach((line, i) => {
@@ -77,10 +69,9 @@ describe("cirth site gates", () => {
     expect(failures).toEqual([]);
   });
 
-  it("hand-written pages never cite D-number decisions", () => {
+  it("site pages never cite D-number decisions", () => {
     const failures: string[] = [];
     for (const page of sitePages()) {
-      if (page.startsWith(GENERATED_PREFIX)) continue;
       const lines = readFileSync(join(SITE, page), "utf8").split("\n");
       let fenced = false;
       lines.forEach((line, i) => {
